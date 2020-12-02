@@ -1,0 +1,135 @@
+---
+
+INITD_PATH: "/etc/init.d/"
+RSYSLOG_PATH: "/etc/rsyslog.d/"
+LOGS_PATH: "/var/log/netfilter/"
+LOGROTATE_PATH: "/etc/logrotate.d/"
+CRONTAB_PATH: "/var/spool/cron/crontabs/"
+ARCHIVING_SCRIPT_PATH: "/root/"
+SSH_PATH: "/root/.ssh/"
+REMOTE_PATH: "/netfilter_repo/"
+
+DAEMON_PREFIX: "firewall_"
+IPTABLES_PREFIX: "iptables_save_"
+RSYSLOG_CONF_FILE: "10-iptables.conf"
+LOGROTATE_FILE_NAME: "netfilter.conf"
+CRONTAB_FILE_NAME: "root"
+ARCHIVING_SCRIPT_NAME: "netfilter_logs_archiving.sh"
+RSA_FILE: "id_rsa_archiving"
+PUB_RSA_FILE: "id_rsa_archiving.pub"
+
+IPTABLES_RULES_LIST: [
+    "iptables -A INPUT -j LOG --log-prefix \"iptables_in: \"",
+    "iptables -A FORWARD -j LOG --log-prefix \"iptables_fw: \"",
+    "iptables -A OUTPUT -j LOG --log-prefix \"iptables_out: \"",
+    "iptables -t nat -A PREROUTING -j LOG --log-prefix \"iptables_nat_prerout: \"",
+    "iptables -t nat -A POSTROUTING -j LOG --log-prefix \"iptables_nat_postrout: \"",
+    "iptables -t nat -A INPUT -j LOG --log-prefix \"iptables_nat_in: \"",
+    "iptables -t nat -A OUTPUT -j LOG --log-prefix \"iptables_nat_out: \""
+    ]
+
+DAEMON_COMMANDS_LIST: [
+    "#!/bin/sh",
+    "### BEGIN INIT INFO",
+    "# Provides: firewall",
+    "# Required-Start: $remote_fs $syslog",
+    "# Should-Start: $remote_fs $syslog",
+    "# Required-Stop: $remote_fs $syslog",
+    "# Should-Stop: $remote_fs $syslog",
+    "# Default-Start:	2 3 4 5",
+    "# Default-Stop:	 	0 1 6",
+    "# Short-description: Manage firewall",
+    "# Description: A daemon to easily make nefilter persistent via iptables and start/restart/stop rules",
+    "### END INIT INFO",
+    "# Start/stop iptables rules",
+    "#",
+    "##Configuration of /etc/init.d/firewall_$hostname.sh",
+    "case \"$1\" in",
+    "'start')",
+    "",
+    "# Reseting firewall rules",
+    "iptables -F",
+    "iptables -X",
+    "iptables -t nat -F",
+    "iptables -t nat -X",
+    "",
+    "# Comments",
+    "",
+    "# Restoring iptables rules",
+    "",
+    "RETVAL=$?",
+    ";;",
+    "'stop')",
+    "# Reseting firewall rules",
+    "iptables -t filter -F",
+    "iptables -t nat -F",
+    "iptables -t mangle -F",
+    "iptables -t raw -F",
+    "iptables -t filter -P INPUT ACCEPT",
+    "iptables -t filter -P OUTPUT ACCEPT",
+    "iptables -t filter -P FORWARD ACCEPT",
+    "echo \"FILTER [ALL RULES .... [FLUSH] ..... POLICY ......> [ACCEPT]\"",
+    "iptables -t nat -P PREROUTING ACCEPT",
+    "iptables -t nat -P POSTROUTING ACCEPT",
+    "iptables -t nat -P OUTPUT ACCEPT",
+    "iptables -t mangle -P PREROUTING ACCEPT",
+    "iptables -t mangle -P OUTPUT ACCEPT",
+    "iptables -t mangle -P POSTROUTING ACCEPT",
+    "iptables -t mangle -P FORWARD ACCEPT",
+    "iptables -t mangle -P INPUT ACCEPT",
+    "iptables -t raw -P OUTPUT ACCEPT",
+    "iptables -t raw -P PREROUTING ACCEPT",
+    "echo \"ALL TABLES ....[FLUSH] ..... ALL POLICY .......> [ACCEPT]\"",
+    "iptables-save > /etc/firewall-client",
+    "echo \"iptables-save > /etc/firewall-client .........> [OK]\"",
+    "RETVAL=$?",
+    ";;",
+    "'restart')",
+    "iptables-restore < /etc/firewall-client",
+    "echo \"/etc/firewall-client ........[OK]\"",
+    "RETVAL=$?",
+    ";;",
+    "'status')",
+    "iptables -L -n --line-numbers",
+    "iptables -t nat -L -n --line-numbers",
+    "RETVAL=$?",
+    ";;",
+    "*)",
+    "echo \"Usage: $0 { start | stop | restart | status }\"",
+    "RETVAL=1",
+    ";;",
+    "esac",
+    "exit $RETVAL"
+    ]
+
+ARCHIVING_COMMANDS_LIST: [
+    "#!/bin/bash",
+    "",
+    "date=`date +%d-%m-%Y`",
+    "day=`date +%d`",
+    "month=`date +%B%Y`",
+    "hostname=`hostname`",
+    "",
+    "if [ $day = \"01\"]",
+    "then",
+    "    echo \"Making a directory for the beginning month\"",
+    "    ssh -i /root/.ssh/id_rsa_archiving $user@$host sudo mkdir /Depot_netfilter/$hostname/$month/",
+    "fi",
+    "",
+    "echo \"Compression des journaux\"",
+    "sudo tar -zcvf \"/var/log/netfilter/archives_$hote-$date.tar.gz\" /var/log/netfilter/iptables*.1",
+    "",
+    "echo \"Transfert des archives\"",
+    "sudo rsync --remove-source-files -av -e 'ssh -i /root/.ssh/id_rsa_archivaging' /var/log/netfilter/archives_$hostname_$date.tar.gz $user@$host:/Depot_netfilter/$hostname/$mois/",
+    ]
+
+LOGROTATE_LIST: [
+    "/var/log/netfilter/* {",
+    "    daily",
+    "    rotate 2",
+    "}",
+    ""
+    ]
+
+BLOC_A: "# Comments"
+BLOC_B: "# Restoring iptables rules"

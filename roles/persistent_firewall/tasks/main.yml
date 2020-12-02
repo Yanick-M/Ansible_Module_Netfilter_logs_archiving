@@ -1,0 +1,25 @@
+---
+
+- name: install iptables
+  package:
+    name: iptables
+    state: present
+
+- name: install ssh
+  package: 
+    name: ssh
+    state: present
+
+- name: install sshpass
+  package:
+    name: sshpass
+    state: present
+
+- name: save firewall rules
+  iptables_save:
+    state: present
+
+- name: create netfilter daemon
+  daemon_script:
+    state: present
+
