@@ -1,1 +1,41 @@
-# "rsyslogd", "logrotate"
+---
+
+# This task is to install IPtables package
+- name: "Install iptables"
+  package:
+    name: iptables
+    state: present
+
+# This task is to install sshpass package
+- name: "Install sshpass"
+  package:
+    name: sshpass
+    state: present
+
+# This task is to install rsync package
+- name: "Install rsync"
+  package:
+    name: rsync
+    state: present
+
+# This task is to install tar package
+- name: "Install tar"
+  package:
+    name: tar
+    state: present
+
+# This task is to add a task for archiving the logs, in the specific root crontab (/var/spool/cron/crontabs/root)
+- name: "Configure archiving task"
+  archiving_task:
+    state: present
+
+# This task is to create a script that compress log every day and upload it on desired remote machine (launched by previous created cron task)
+- name: "Create archiving script"
+  archiving_script:
+    state: present
+    vars:
+      username: {{ username }}
+      password: {{ password }}
+      host: {{ host }}
+    vars_file:
+      - script_vars.yml

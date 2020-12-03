@@ -382,6 +382,10 @@ def main():
     
     module = AnsibleModule(
         argument_spec = dict(
+            username = dict(type = 'str', required = True),
+            password = dict(type = 'str', required = True, no_log = True),
+            host = dict(type = 'str', required = True),
+            state = dict(required = True, choices = ['present', 'absent']),
             INITD_PATH = dict(required = True, type = 'str'),
             SSH_PATH = dict(required = True, type = 'str'),
             REMOTE_PATH = dict(required = True, type = 'str'),
@@ -392,11 +396,7 @@ def main():
             IPTABLES_RULES_LIST = dict(required = True, type = 'list'),
             DAEMON_COMMANDS_LIST = dict(required = True, type = 'list'),
             BLOC_A = dict(required = True, type = 'str'),
-            BLOC_B = dict(required = True, type = 'str'),
-            username = dict(type = 'str', required = True),
-            password = dict(type = 'str', required = True),
-            host = dict(type = 'str', required = True),
-            state = dict(required = True, choices = ['present', 'absent'])
+            BLOC_B = dict(required = True, type = 'str')
     )
 )
 

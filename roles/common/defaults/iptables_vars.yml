@@ -1,0 +1,7 @@
+---
+
+# Declare the prefix name of iptables save name, hostname will be added at the end later
+IPTABLES_PREFIX: ""
+
+# Declare the path where the daemon and the iptables save are stored, DO NOT CHANGE !
+INITD_PATH: "/etc/init.d/"

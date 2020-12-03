@@ -1,1 +1,30 @@
-# "rsync", "tar", "sshpass",  "ssh",
+---
+
+# This task is to install rsyslog package
+- name: "Install rsyslogd"
+  package:
+    name: "rsyslogd"
+    state: "present"
+
+# This task is to install logrotate package
+- name: "Install logrotate"
+  package:
+    name: "logrotate"
+    state: "present"
+
+# This task is to create a rsyslog conf file for Netfilter own logs
+- name: "Create Netfilter own logs"
+  own_logs:
+    state: "present"
+    vars_files:
+      - rsyslog_vars.yml
+      - rules_template.yml
+  notify: rsyslog restart
+
+# This task is to create a logrotate conf file for Netfilter own logs
+- name: "Create logs rotation"
+  logs_rotate:
+    state: "present"
+    vars_files:
+      -logrotate_vars.yml
+  notify: logrotate restart

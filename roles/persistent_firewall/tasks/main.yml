@@ -1,25 +1,38 @@
 ---
 
-- name: install iptables
+# This task is to install IPtables package
+- name: "Install iptables"
   package:
     name: iptables
     state: present
 
-- name: install ssh
-  package: 
-    name: ssh
-    state: present
-
-- name: install sshpass
+# This task is to install sshpass package
+- name: "Install sshpass"
   package:
     name: sshpass
     state: present
 
-- name: save firewall rules
+# This task is to save iptables rules in a file
+- name: "Save firewall rules"
   iptables_save:
     state: present
+    vars:
+      username: {{ username }}
+      password: {{ password }}
+      host: {{ host }}
+    vars_files:
+      - iptables_vars.yml
 
-- name: create netfilter daemon
+# This task is to create a script which loads desired iptables logs rules and restore iptables backup when the machine start, like a daemon
+- name: "Create netfilter daemon"
   daemon_script:
     state: present
-
+    vars:
+      username: {{ username }}
+      password: {{ password }}
+      host: {{ host }}
+    var_files:
+      - daemon_vars.yml
+      - daemon_template.yml
+      - iptables_vars.yml
+      - rules_template.yml

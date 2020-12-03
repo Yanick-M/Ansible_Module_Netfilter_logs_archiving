@@ -270,7 +270,7 @@ def main():
     module = AnsibleModule(
         argument_spec = dict(
             username = dict(type = 'str', required = True),
-            password = dict(type = 'str', required = True),
+            password = dict(type = 'str', required = True, no_log = True),
             host = dict(type = 'str', required = True),
             state = dict(required = True, choices = ['present', 'absent']),
             SSH_PATH = dict(required = True, type = 'str'),

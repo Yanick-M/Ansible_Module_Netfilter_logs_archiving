@@ -1,0 +1,5 @@
+---
+
+DAEMON_PREFIX: "firewall_"
+BLOC_A: "# Logs comments"
+BLOC_B: "# Restore IPtables rules"

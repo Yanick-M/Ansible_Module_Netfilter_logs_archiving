@@ -1,0 +1,11 @@
+---
+
+LOGROTATE_PATH: "/var/log/netfilter/"
+LOGROTATE_FILE_NAME: "netfilter.conf"
+LOGROTATE_LIST: [
+    "/var/log/netfilter/* {",
+    "    daily",
+    "    rotate 2",
+    "}",
+    ""
+    ]
