@@ -1,0 +1,20 @@
+---
+ARCHIVING_COMMANDS_LIST: [
+      "#!/bin/bash",
+      "",
+      "date=`date +%d-%m-%Y`",
+      "day=`date +%d`",
+      "month=`date +%B%Y`",
+      "hostname=`hostname",
+      "",
+      "if [ $day = \"01\"] ; then",
+      "    echo \"Directory creation when a month begin\"",
+      "    ssh -i /root/.ssh/id_rsa_archiving $user@$host sudo mkdir /Depot_netfilter/$hostname/$mois/",
+      "fi",
+      "",
+      "echo \"Compressing logs files\"",
+      "sudo tar -zcvf \"/var/log/netfilter/archive_$hostname-$date.tar.gz\" /var/log/netfilter/iptables*.1",
+      "",
+      "echo \"Archives transfer\"",
+      "sudo rsync --remove-source-files -av -e 'ssh -i /root/.ssh/id_rsa_archiving' /var/log/netfilter/archive_$hostname-$date.tar.gz $user@$host:/LogsArchiving_REPO/$hostname/$month/"
+      ]

@@ -1,0 +1,12 @@
+---
+state: present
+apt_firewall: iptables
+yum_firewall: iptables-services
+all_log: rsyslog
+all_sync: rsync
+all_archive: tar
+all_rotate: logrotate
+all_sshpass: sshpass
+all_py: python3
+all_paramiko: python3-paramiko
+all_scp: python3-scp

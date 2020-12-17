@@ -1,0 +1,32 @@
+- name: "IPtables Debian Install"
+  package:
+    name: "{{apt_firewall}}"
+    state: "{{state}}"
+  when: ansible_facts['os_family'] is in ["Debian", "Ubuntu"]
+- name: "IPtables CentOS Install"
+  package:
+    name: "{{yum_firewall}}"
+    state: "{{state}}"
+  when: ansible_facts['os_family'] is in ["RedHat", "CentOS"]
+- name: "Sshpass Debian Install"
+  package:
+    name: "{{all_sshpass}}"
+    state: "{{state}}"
+  when: ansible_facts['os_family'] is in ["Debian", "Ubuntu"]
+- name: "Sshpass CentOS Install"
+  package:
+    name: 
+      - epel-release
+      - sshpass
+    state: "{{state}}"
+  when: ansible_facts['os_family'] is in ["RedHat", "CentOS"]
+- name: "Others packages Install"
+  package:
+    name: 
+    - "{{all_rotate}}"
+    - "{{all_sync}}"
+    - "{{all_archive}}"
+    - "{{all_py}}"
+    - "{{all_paramiko}}"
+    - "{{all_scp}}"
+    state: "{{state}}"

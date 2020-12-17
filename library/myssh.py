@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/python3
 # coding: utf-8
 
 from __future__ import (absolute_import, division, print_function)
@@ -14,7 +14,7 @@ RETURN = r'''
 '''
 
 import os, socket, stat, paramiko
-from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.basic import *
 from scp import SCPClient
 
 # Define module user-defined exceptions and errors
@@ -36,7 +36,7 @@ class Error(Exception):
     def fatal_error(self):
         ''' raised when a unknown problem occurs '''
         module.exit_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
-
+    
     def state_argument_error(self):
         ''' raised when a state argument problem occurs '''
         module.exit_json(changed = False, msg = "\033[31mState argument only accept 'present' or 'absent' !\033[0m")
@@ -93,7 +93,7 @@ def write_file(path, name, data):
         raise WritingFailure
 
 def implement_file(path, name, rights):
-    ''' To change file permissions '''
+    ''' To change file permissions on the remote host '''
 
     print("-----changing permissions of {} in \"{}\"-----".format(name, path))
     try:
@@ -110,24 +110,24 @@ def implement_file(path, name, rights):
 class ssh:
     ''' Class for ssh operations '''
 
-    def __init__(self, username, password, host):
+    def __init__(self, module):
         ''' Initialize the object '''
 
-        self.host = host
+        self.host = module.params.get('host')
         self.client = None
         self.scp = None
-        self.username = username
-        self.password = password
-        self._connect()
+        self.username = module.params.get('username')
+        self.password = module.params.get('password')
+        self._connect(module)
 
-    def _connect(self):
+    def _connect(self, module):
         ''' Initialize the connection '''
         
         try:
             self.client = paramiko.SSHClient()
             self.client.load_system_host_keys()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self._check_rsa_keys()
+            self._check_rsa_keys(module)
             self.client.connect(self.host, username = self.username, pkey = self.ssh_key)
             self.scp = SCPClient(self.client.get_transport())
         except:
@@ -135,7 +135,7 @@ class ssh:
         finally:
             return self.client
     
-    def _check_rsa_keys(self):
+    def _check_rsa_keys(self, module):
         ''' Check if rsa keys exist on the remote host (needed for ssh operations with no password input) '''
 
         self.rsa_key = module.params.get('RSA_FILE')
@@ -146,14 +146,14 @@ class ssh:
             read_file(self.path_rsa_keys, self.pub_rsa_key)
             self.ssh_key = paramiko.RSAKey.from_private_key_file("{}{}".format(self.path_rsa_keys, self.rsa_key))
         except MyFileNotFound as exc:
-            self._create_rsa_keys()
+            self._create_rsa_keys(module)
+            self.ssh_key = paramiko.RSAKey.from_private_key_file("{}{}".format(self.path_rsa_keys, self.rsa_key))
         except ReadingFailure as exc:
-            raise Error.no_privileges(ReadingFailure)
+            raise Error.no_privileges(ReadingFailure, module)
 
-    def _create_rsa_keys(self):
+    def _create_rsa_keys(self, module):
         ''' Create rsa keys on the remote host and copy the id on the target machine '''
 
-        print("-----creating rsa keys-----")
         self.rights = stat.S_IREAD|stat.S_IWRITE
 
         os.system("rm \"{0}{1}\" > /dev/null 2>&1 | ssh-keygen -b 4096 -m PEM -f \"{0}{1}\" -N \"\" > /dev/null 2>&1".format(self.path_rsa_keys, self.rsa_key))
@@ -164,17 +164,15 @@ class ssh:
         except FileNotFoundError as exc:
             pass
         except WritingFailure as exc:
-            raise Error.no_privileges(IOError)
+            raise Error.no_privileges(IOError, module)
+        
+        os.system("echo 'Host {0}\n     IdentityFile {1}{2}' >> \"{1}config\"".format(self.host, self.path_rsa_keys, self.rsa_key))
 
-        result = os.system("sshpass -p \"{}\" ssh-copy-id -o StrictHostKeyChecking=no -i \"{}{}\" {}@{} > /dev/null 2>&1".format(self.password, self.path_rsa_keys, self.rsa_key, self.username, self.host))
+        result = os.system("sshpass -p \"{}\" ssh-copy-id -o StrictHostKeyChecking=no -i \"{}{}\" {}@{} > /dev/null 2>&1".format(self.password, self.path_rsa_keys, self.pub_rsa_key, self.username, self.host))
         if result == 256:
-            print("\033[31mUnable to tranfer id on {}, problem to study ! Maybe the name of the target machine or the name of the key are incorrect\033[0m".format(host.upper()))
+            module.warn("Unable to tranfer id on {}, problem to study ! Maybe the name of the target machine or the name of the key are incorrect".format(host.upper()))
         elif result == 1536:
-            print("\033[31m The username of the target machine or his password on {} are incorrect !\033[0m".format(host.upper()))
-
-        self.ssh_key = paramiko.RSAKey.from_private_key_file("{}{}".format(self.path_rsa_keys, self.rsa_key))
-
-        print("\033[32m-----the rsa keys has been generated-----\033[0m")
+            module.warn("The username of the target machine or his password on {} are incorrect !".format(host.upper()))
 
     def disconnect(self):
         ''' Close the ssh connection with the target machine '''
@@ -182,167 +180,95 @@ class ssh:
         self.client.close()
         self.scp.close()
 
-    def exec_command(self,command):
+    def _exec_command(self, command, module):
         ''' Execute a specified command on the target machine '''
 
         if self.client is None:
-            self.client == self.__connect()
-        stdin,stdout,stderr = self.client.exec_command(command)
-        status = stdout.channel.recv_exit_status()
-        if status == 0:
-            return stdout.read()
-        else:
-            return None
+            self.client == self.__connect(module)
+        self.client.exec_command(command)
 
-    def download_file(self, path, remote_path, name):
+    def download_file(self, path, dest_path, name, module):
         ''' Download a file from the target machine '''
     
         try:
             if self.client is None:
                 self.client = self.__connect()
-            self.scp.get('{}{}'.format(remote_path, name), '{}'.format(path))
-            print("\033[32m-----the file {} has been downloaded from {}-----\033[0m".format(name, self.host.upper()))
+            self.scp.get('{}{}'.format(dest_path, name), '{}{}'.format(path, name))
+            msg = "File has been downloaded."
+            return True, msg
         except:
-            print("\033[33m-----Unable to download the file {} from {}-----\033[0m".format(name, self.host.upper()))
+            module.warn("-----Unable to download the file {} from {}-----".format(name, self.host.upper()))
+            msg = "-----Unable to download the file {} from {}-----".format(name, self.host.upper())
+            return False, msg
 
-    def upload_file(self, path, remote_path, name):
+    def upload_file(self, path, dest_path, name, module):
         ''' Transfer a file on the target machine (create directories if they don't exists but not possible on root) '''
 
         try:
             if self.client is None:
                 self.client = self.__connect()
-            command = "mkdir -p {}".format(remote_path)
-            self.exec_command("mkdir -p {}".format(remote_path))
-            self.scp.put('{}{}'.format(path, name), '{}{}'.format(remote_path, name))
-            print("\033[32m-----The file {} has been uploaded on {}-----\033[0m".format(name, self.host.upper()))
+            self._exec_command("mkdir -p {}".format(dest_path), module)
+            self.scp.put('{}{}'.format(path, name), recursive=True, remote_path = dest_path)
+            msg = "File has been uploaded."
+            return True, msg
         except:
-            print("\033[33m-----Unable to upload the file {} on {}-----\033[0m".format(name, self.host.upper()))
+            module.warn("-----Unable to upload the file {} on {}-----".format(name, self.host.upper()))
+            msg = "-----Unable to upload the file {} on {}-----".format(name, self.host.upper())
+            return False, msg
 
 ############################################################################################################################################################
 ############################################################################################################################################################
 
-class archives:
-    ''' Class to manage archiving script '''
+def create_connection(module):
+    
+    link = ssh(module)
+    msg = "ssh connection is enable"
+    return True, msg
 
-    def __init__(self):
-        ''' Initialize the object '''
-        
-        self.name = module.params.get('ARCHIVING_SCRIPT_NAME')
-        self.path = module.params.get('ARCHIVING_SCRIPT_PATH')
-        self._read()
+def make_download(module):
+    
+    link = ssh(module)
+    result = link.download_file(module)
+    return result
 
-    def _read(self):
-        ''' Check if the archiving script exists '''
-
-        try:
-            self.file_content = read_file(self.path, self.name)
-            self.existing_file = True
-        except MyFileNotFound as exc:
-            self.existing_file = False
-        except ReadingFailure as esc:
-            raise Error.privileges(ReadingFailure)
-
-    def search(self, value):
-        ''' Check if a value exists in the content of the archiving script '''
-
-        # Recherche d'une valeur dans chaque ligne d'une liste (ex. : le nom du script dans la tâche cronatb active)
-        # Si la valeur n'est pas trouvée, une exception est levée
-        result = False
-        for line in self.file_content:
-            if line.find(value) >= 0:
-                result = True
-        if result is False:
-            raise EmptySearch
-
-    def create_commands(self, host, username):
-        ''' Create the content of the script '''
-
-        self.commands = module.params.get('ARCHIVING_COMMANDS_LIST')
-
-        self.commands.insert(2, "host={}".format(host))
-        self.commands.insert(2, "user={}".format(username))
-
-    def write_commands(self):
-        ''' Write the content in a file on the remote host '''
-
-        try:
-            write_file(self.path, self.name, self.commands)
-        except WritingFailure as exc:
-            raise Error.unable_to_write(WritingFailure)
-
-        self.implement()
-
-    def implement(self):
-        ''' Modify the permisssion of the archiving script '''
-
-        rights = stat.S_IRWXU
-        try:
-            implement_file(self.path, self.name, rights)
-        except MyFileNotFound as exc:
-            raise Error.erreurfatale(MyFileNotFound)
-        except WritingFailure as exc:
-            raise Error.unable_to_write(WritingFailure)
-
-############################################################################################################################################################
-############################################################################################################################################################
+def make_upload(module):
+    
+    link = ssh(module)
+    result = link.upload_file(module)
+    return result
 
 def main():
-    ''' Check if the archiving script and executing task already exist, update, create or remove them if necessary '''
-
-    module = AnsibleModule(
-        argument_spec = dict(
-            username = dict(type = 'str', required = True),
-            password = dict(type = 'str', required = True, no_log = True),
-            host = dict(type = 'str', required = True),
-            state = dict(required = True, choices = ['present', 'absent']),
-            ARCHIVING_SCRIPT_PATH = dict(required = True, type = 'str'),
-            SSH_PATH = dict(required = True, type = 'str'),
-            ARCHIVING_SCRIPT_NAME = dict(required = True, type = 'str'),
-            RSA_FILE = dict(required = True, type = 'str'),
-            PUB_RSA_FILE = dict(required = True, type = 'str'),
-            ARCHIVING_COMMANDS_LIST = dict(required = True, type = 'list')
-        )
-    )
-
-    username = module.params.get('username')
-    password = module.params.get('username')
-    host = module.params.get('host')
-    state = module.params.get('state')
-
-    # Objects establishing for the archiving script and rsa key generation
-    script = archives()
-    link = ssh()
-
-    if state.lower() == "absent":
-        if script.existing_file is True:
-            try:
-                os.remove(script.path, script.name)
-                module.exit_json(changed = True, msg = "Archiving script has been removed.")
-            except IOError:
-                raise Error.no_privileges(IOError)
-        module.exit_json(changed = False, msg = "Archiving script has not been found.")
     
-    elif state.lower() == "present":
-        # If the archiving script exists, checking if the username and the target machine are good
-        # Yes, no change needed
-        # No, updating the script
-        if script.existing_file is True:
-            try:
-                script.search(username)
-                script.search(host)
-                module.exit_json(changed = False, msg = "Archiving script already exists.")
-            except EmptySearch as exc:
-                script.create_commands(host, username)
-                script.write_commands()
-                module.exit_json(changed = True, msg = "Archiving script has been updated with new host or user.")
-        # If not, creating the script
-        else:
-            script.create_commands(host, username)
-            script.write_commands()
-            module.exit_json(changed = True, msg = "Archiving script has been created.")
+    fields = {
+            "username": {"required": True, "type": "str"},
+            "password": {"required": True, "no_log": True, "type": "str"},
+            "host": {"required": True, "type": "str"},
+            "SSH_PATH": {"default": "/root/.ssh/", "type": "str"},
+            "RSA_FILE": {"default": "id_rsa_archiving", "type": "str"},
+            "PUB_RSA_FILE": {"default": "id_rsa_archiving.pub", "type": "str"},
+            "path": {"default": "/etc/init.d/", "type": "str"},
+            "dest_path": {"default": "/LogsArchiving_REPO/", "type": "str"},
+            "filename": {"required": False, "type"}
+            "state": {
+                "default": "enable", 
+                "choices": ['enable', 'download', 'upload'],  
+                "type": 'str' 
+                }
+            }
 
-    else:
-        raise Error.state_argument_error(state)
+    choice_map = {
+        "enable": create_connection,
+        "download": make_download,
+        "upload": make_upload
+        }
+
+    module = AnsibleModule(argument_spec = fields)
+
+    has_changed, result = choice_map.get(module.params['state'])(module)
+    module.exit_json(changed=has_changed, msg=result)
+
+############################################################################################################################################################
+############################################################################################################################################################
 
 if __name__ == '__main__':
 

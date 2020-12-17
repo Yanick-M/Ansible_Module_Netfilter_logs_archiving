@@ -1,0 +1,7 @@
+- name: "Configure servers with persistent firewall and own logs"
+  hosts: all
+  roles:
+    - role: "install"
+    - role: "persistent_firewall"
+    - role: "firewall_logs"
+    - role: "logs_transfer"

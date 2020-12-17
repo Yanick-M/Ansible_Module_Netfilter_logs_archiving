@@ -1,45 +1,46 @@
-#! /usr/bin/env python3
-# coding: utf-8
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
+# Copyright (c) 2020 [Yanick-M]
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
-DOCUMENTATION = r'''
+DOCUMENTATION = '''
 Le répertoire servant de dépôt pour les fichiers doit être créé au préalable et appartenir à l'utilisateur appelés en argument
 Le module paramiko doit être présent sur le système ---> A traduire
 '''
-EXAMPLES = r'''
+EXAMPLES = '''
 '''
-RETURN = r'''
+RETURN = '''
 '''
 
-import os, socket, stat, paramiko
+import os
 from ansible.module_utils.basic import AnsibleModule
-from scp import SCPClient
+
+############################################################################################################################################################
+############################################################################################################################################################
 
 # Define module user-defined exceptions and errors
 class Error(Exception):
     ''' Base class for errors that require to stop module execution '''
 
-    def no_privileges(self):
+    def no_privileges(self, module):
         ''' raised when an action need privileges '''
-        module.exit_json(changed = False, msg = "\033[31mMust be run as root !\033[0m")
+        module.fail_json(changed = False, msg = "\033[31mMust be run as root !\033[0m")
 
-    def file_missing(self, path, name):
+    def file_missing(self, path, name, module):
         ''' raised when a file does not exists on the remote host '''
-        module.exit_json(changed = False, msg = "\033[31mThe file {} in \"{}\" is missing !\033[0m".format(path, name))
+        module.fail_json(changed = False, msg = "\033[31mThe file {} in \"{}\" is missing !\033[0m".format(path, name))
 
-    def unable_to_write(self, path, name):
+    def unable_to_write(self, path, name, module):
         ''' raised when a file can't be created or modified on the remote host '''
-        module.exit_json(changed = False, msg = "\033[31m Can't write the file {} in \"{}\" !\033[0m".format(path, name))
+        module.fail_json(changed = False, msg = "\033[31m Can't write the file {} in \"{}\" !\033[0m".format(path, name))
 
-    def fatal_error(self):
+    def fatal_error(self, module):
         ''' raised when a unknown problem occurs '''
-        module.exit_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
-    
-    def state_argument_error(self):
-        ''' raised when a state argument problem occurs '''
-        module.exit_json(changed = False, msg = "\033[31mState argument only accept 'present' or 'absent' !\033[0m")
+        module.fail_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
 
 class MyFileNotFound(Error):
     ''' Raised when a file is not found on the remote host '''
@@ -67,12 +68,10 @@ class NoUpDateNeeded(Error):
 def read_file(path, name):
     ''' To see if a file exists on the remote host and return his content in a list '''
 
-    print("-----reading file {} in \"{}\"-----".format(name, path))
     try:
         my_file = open(path + name, "r")
         liste = [i[:-1] for i in my_file]
         my_file.close()
-        print("\033[32m-----the file has been found and read-----\033[0m")
     except FileNotFoundError:
         raise MyFileNotFound
     except IOError:
@@ -83,22 +82,18 @@ def read_file(path, name):
 def write_file(path, name, data):
     ''' To write data in a file on the remote host '''
 
-    print("-----saving data in the file {} in \"{}\"-----".format(name, path))
     try:
         with open(path + name, "w") as fichier:
             for line in data:
                 fichier.write("{}\n".format(line))
-        print("\033[32m-----the file has been created or modified-----\033[0m")
     except IOError:
         raise WritingFailure
 
 def implement_file(path, name, rights):
     ''' To change file permissions on the remote host '''
 
-    print("-----changing permissions of {} in \"{}\"-----".format(name, path))
     try:
         os.chmod(path + name, rights)
-        print("\033[32m-----the permissions are changed-----\033[0m")
     except FileNotFoundError:
         raise MyFileNotFound
     except PermissionError:
@@ -110,16 +105,16 @@ def implement_file(path, name, rights):
 class logs:
     ''' Class to manage Netfilter own logs '''
 
-    def __init__(self):
+    def __init__(self, module):
         ''' Initialize the object '''
 
         self.name = module.params.get('RSYSLOG_CONF_FILE')
         self.path = module.params.get('RSYSLOG_PATH')
         self.logs_path = module.params.get('LOGS_PATH')
         self.logs_rules = module.params.get('IPTABLES_RULES_LIST')
-        self._read()
+        self._read(module)
 
-    def _read(self):
+    def _read(self, module):
         ''' Check if an iptables conf file for rsyslog exists '''  
         
         try:
@@ -128,14 +123,13 @@ class logs:
         except MyFileNotFound as exc:
             self.existing = False
         except ReadingFailure as esc:
-            raise Error.privileges(ReadingFailure)
+            raise Error.privileges(ReadingFailure, module)
     
     def compare_rsyslog_commands(self):
         ''' Check in the content of the rsyslog conf file if the logs prefix exist '''
 
         self.commands_to_define = []
 
-        print("-----data comparison-----")
         for rule in self.logs_rules:
             
             command_find = False
@@ -159,93 +153,109 @@ class logs:
         for rule in self.commands_to_define:
             self.rsyslog_commands.append(":msg, contains, {} -/var/log/netfilter/{}.log \n & ~".format(rule, rule[1:-3]))
 
-    def write_commands(self):
+    def write_commands(self, module):
         ''' Write the content in a file on the remote host '''
 
         try:
             write_file(self.path, self.name, self.rsyslog_commands)
         except WritingFailure as exc:
-            raise Error.unable_to_write(WritingFailure)
+            raise Error.unable_to_write(WritingFailure, module)
 
-    def update_conf_file(self):
+    def update_conf_file(self, module):
         ''' Rewrite the conf file with the update content '''
 
         self._update_commands()
-        self.write_commands()
+        self.write_commands(module)
 
-    def create_directory(self):
+    def create_directory(self, module):
         ''' Create a directory to store Netfilter logs '''
 
-        print("\n\033[36mChecking for Netfilter logs directory...\033[0m")
         try:
             os.makedirs(self.logs_path)
             os.system("chown root:syslog {0} && chmod 775 {0}".format(self.logs_path))
         except FileExistsError as exc:
             pass
         except IOError as exc:
-            raise Error.no_privileges(IOError)
+            raise Error.no_privileges(IOError, module)
 
-    def create_conf_file(self):
+    def create_conf_file(self, module):
         ''' Generate the content of the rsyslog conf file '''
 
         self.rsyslog_commands = []
         try:
             self.compare_rsyslog_commands()
         except EmptySearch as exc:
-            raise Error.fatal_error(EmptySearch)
+            raise Error.fatal_error(EmptySearch, module)
 
         self._update_commands()
 
 ############################################################################################################################################################
 ############################################################################################################################################################
 
+def make_conf_file(module):
+    
+    # Object establishing for the Netfilter logs
+    job = logs(module)
+    
+    # If a rsyslog conf file exits, trying to see if the desired logs rules exists
+    # No, rsyslog conf file is updated and logrotate check
+    # Yes, just check logrotate
+    if job.existing is True:
+        try:
+            job.compare_rsyslog_commands()
+            job.update_conf_file(module)
+            msg = "Rsyslog conf file has been updated with new Netfilter logs."
+            return True, msg
+        except EmptySearch as exc:
+            msg = "Netfilter has already his own logs."
+            return False, msg
+    # If not, create the conf files for rsyslog and logrotate
+    else:
+        job.create_conf_file(module)
+        job.write_commands(module)
+        msg = "Rsyslog conf file has been created, Nefilter has is own logs"
+        return True, msg
+    
+
+def erase_conf_file(module):
+    
+    # Object establishing for the Netfilter logs
+    job = logs(module)
+    if job.existing is True:
+        try:
+            os.remove(job.path + job.name)
+            msg = "Netfilter logs configuration has been removed."
+            return True, msg
+        except IOError:
+            raise Error.no_privileges(WritingFailure)
+    else:
+        msg = "Nelfilter logs configuration has not been found."
+        return False, msg
+
 def main():
     ''' Check if the rsyslog conf file already exists, update, create or remove it if necessary '''
 
-    module = AnsibleModule(
-        argument_spec = dict(
-            state = dict(required = True, choices = ['present', 'absent']),
-            RSYSLOG_PATH = dict(required = True, type = 'str'),
-            LOGS_PATH = dict(required = True, type = 'str'),
-            RSYSLOG_CONF_FILE = dict(required = True, type = 'str'),
-            IPTABLES_RULES_LIST = dict(required = True, type = 'list'),
-        )
-    )
+    fields = {
+            "IPTABLES_RULES_LIST": {"required": True, "type": "list"},
+            "RSYSLOG_PATH": {"default": "/etc/rsyslog.d/", "type": "str"},
+            "LOGS_PATH": {"default": "/var/log/netfilter/", "type": "str"},
+            "RSYSLOG_CONF_FILE": {"default": "10-iptables.conf", "type": "str"},
+            "state": {
+                "default": "present", 
+                "choices": ['present', 'absent'],  
+                "type": 'str' 
+                }
+            }
 
-    state = module.params.get('state')
+    choice_map = {
+        "present": make_conf_file,
+        "absent": erase_conf_file
+        }
 
-    # Object establishing for the Netfilter logs
-    iptables_logs = logs()
+    module = AnsibleModule(argument_spec = fields)
 
-    if state.lower() == "absent":
-        if iptables_logs.existing is True:
-            try:
-                os.remove()(iptables_logs.path, iptables_logs.name)
-                module.exit_json(changed = True, msg = "Netfilter logs configuration has been removed.")
-            except IOError:
-                raise Error.no_privileges(WritingFailure)
-        else:
-            module.exit_json(changed = False, msg = "Nelfilter logs configuration has not been found.")
-    
-    elif state.lower() == 'present':
-        # If a rsyslog conf file exits, trying to see if the desired logs rules exists
-        # No, rsyslog conf file is updated and logrotate check
-        # Yes, just check logrotate
-        if iptables_logs.existing is True:
-            try:
-                iptables_logs.compare_rsyslog_commands()
-                iptables_logs.update_conf_file()
-                module.exit_json(changed = True, msg = "Rsyslog conf file has been updated with new Netfilter logs.")
-            except EmptySearch as exc:
-                module.exit_json(changed = False, msg = "Netfilter has already his own logs.")
-        # If not, create the conf files for rsyslog and logrotate
-        else:
-            iptables_logs.create_conf_file()
-            iptables_logs.write_commands()
-            module.exit_json(changed = True, msg = "Rsyslog conf file has been created, Nefilter has is own logs")
-    
-    else:
-        raise Error.state_argument_error(state)
+    has_changed, result = choice_map.get(module.params['state'])(module)
+    module.exit_json(changed=has_changed, msg=result)
 
 ############################################################################################################################################################
 ############################################################################################################################################################

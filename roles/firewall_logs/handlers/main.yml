@@ -1,11 +1,10 @@
 ---
-
 - name: "rsyslog restart"
   service:
     name: "rsyslog"
     state: "restarted"
 
 - name: "logrotate restart"
-  service: "logrotate"
-  state: "restarted"
-  # sleep: "60"
+  service:
+    name: "logrotate"
+    state: "restarted"

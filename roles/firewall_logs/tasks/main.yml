@@ -1,30 +1,29 @@
----
+# Créer le répertoire crontab (pb avec centOS)
 
-# This task is to install rsyslog package
-- name: "Install rsyslogd"
-  package:
-    name: "rsyslogd"
-    state: "present"
-
-# This task is to install logrotate package
-- name: "Install logrotate"
-  package:
-    name: "logrotate"
-    state: "present"
-
-# This task is to create a rsyslog conf file for Netfilter own logs
-- name: "Create Netfilter own logs"
+- name: "Configure rsyslog"
   own_logs:
     state: "present"
-    vars_files:
-      - rsyslog_vars.yml
-      - rules_template.yml
+    IPTABLES_RULES_LIST: "{{IPTABLES_RULES_LIST}}"
+  register: result
   notify: rsyslog restart
 
-# This task is to create a logrotate conf file for Netfilter own logs
-- name: "Create logs rotation"
+- debug: var=result
+
+- meta: flush_handlers
+
+- name: "Generate IP traffic"
+  ping:
+
+- name: "Wait for log file"
+  pause:
+    seconds: 5
+  connection: local
+
+- name: "Configure logrotate"
   logs_rotate:
-    state: "present"
-    vars_files:
-      -logrotate_vars.yml
+    state: "absent"
+    LOGROTATE_LIST: "{{LOGROTATE_LIST}}"
+  register: result
   notify: logrotate restart
+
+- debug: var=result

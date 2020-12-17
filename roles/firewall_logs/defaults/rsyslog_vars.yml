@@ -1,5 +1,0 @@
----
-
-RSYSLOG_PATH: "/etc/rsyslog.d"
-LOGS_PATH: "/var/log/netfilter/"
-RSYSLOG_CONF_FILE: "10-iptables.conf"

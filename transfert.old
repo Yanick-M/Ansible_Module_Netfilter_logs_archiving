@@ -1,0 +1,14 @@
+- name: "testing transfert file"
+  hosts: Router
+  tasks: 
+    - name: "Use my ssh module"
+      myssh:
+        username: "aic"
+        password: "Azerty123&"
+        host: "ServerCentral"
+        PATH: "/home/"
+        REMOTE_PATH: "/home/"
+        NAME: "firewall-2020RT01.sh"
+        RSA_FILE: "id_rsa_test"
+        PUB_RSA_FILE: "id_rsa_test.pub"
+        SSH_PATH: "/home/aic/.ssh/"

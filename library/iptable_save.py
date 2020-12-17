@@ -1,45 +1,93 @@
-#! /usr/bin/env python3
-# coding: utf-8
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
+# Copyright (c) 2020 [Yanick-M]
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
-DOCUMENTATION = r'''
-Le répertoire servant de dépôt pour les fichiers doit être créé au préalable et appartenir à l'utilisateur appelés en argument
-Le module paramiko doit être présent sur le système ---> A traduire
+ANSIBLE_METADATA = {'metadata_version': '1.1',
+                    'status': ['preview'],
+                    'supported_by': 'community'}
+
+DOCUMENTATION = '''
+---
+module: iptable_save
+short_description: Save firewall rules
+description:
+    - Make a save of the netfilter rules with IPtables is going to be done in "/etc/init.d/" and copy the save file on a remote server with scp. The save filename is generated with the prefix send by Ansible and the hostname.
+version_added: "3.7.3"
+options:
+    state:
+        description:
+            - Indicates if you want to save or remove save file.
+        required: true
+        default: null
+        choices: {present, absent}
+requirements:
+    - python3-paramiko
+    - python3-scp
+    - iptables
+author: "Yanick-M"
+notes:
+    - THIS MODULE REQUIRES PRIVILEGES !!!
 '''
-EXAMPLES = r'''
+
+EXAMPLES = '''
+- name: "Saving IPtables Rules"
+  hosts: Router
+  tasks:
+    - name: "Use my module"
+      iptable_save:
+        state: present
+        username: "aic"
+        password: "Azerty123&"
+        host: "ServerCentral"
+        IPTABLES_PREFIX: "firewall_"
+        INITD_PATH: "/etc/init.d/"
+        RSA_FILE: "id_rsa_archiving"
+        PUB_RSA_FILE: "id_rsa_archiving.pub"
+        REMOTE_PATH: "/LogsArchiving_REPO/"
+        SSH_PATH: "/root/.ssh/"
+
+- name: "Saving IPtables Rules"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      iptable_save:
+        state: absent
+        username: "{{username}}"
+        password: "{{password}}"
+        host: "{{host}}"
 '''
-RETURN = r'''
+RETURN = '''
+Nothing more than changed and a result message.
 '''
 
 import os, socket, stat, paramiko
-from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.basic import *
 from scp import SCPClient
 
 # Define module user-defined exceptions and errors
 class Error(Exception):
     ''' Base class for errors that require to stop module execution '''
 
-    def no_privileges(self):
+    def no_privileges(self, module):
         ''' raised when an action need privileges '''
-        module.exit_json(changed = False, msg = "\033[31mMust be run as root !\033[0m")
+        module.fail_json(changed = False, msg = "\033[31mMust be run as root !\033[0m")
 
-    def file_missing(self, path, name):
+    def file_missing(self, path, name, module):
         ''' raised when a file does not exists on the remote host '''
-        module.exit_json(changed = False, msg = "\033[31mThe file {} in \"{}\" is missing !\033[0m".format(path, name))
+        module.fail_json(changed = False, msg = "\033[31mThe file {} in \"{}\" is missing !\033[0m".format(path, name))
 
-    def unable_to_write(self, path, name):
+    def unable_to_write(self, path, name, module):
         ''' raised when a file can't be created or modified on the remote host '''
-        module.exit_json(changed = False, msg = "\033[31m Can't write the file {} in \"{}\" !\033[0m".format(path, name))
+        module.fail_json(changed = False, msg = "\033[31m Can't write the file {} in \"{}\" !\033[0m".format(path, name))
 
-    def fatal_error(self):
+    def fatal_error(self, module):
         ''' raised when a unknown problem occurs '''
-        module.exit_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
-    
-    def state_argument_error(self):
-        ''' raised when a state argument problem occurs '''
-        module.exit_json(changed = False, msg = "\033[31mState argument only accept 'present' or 'absent' !\033[0m")
+        module.fail_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
 
 class MyFileNotFound(Error):
     ''' Raised when a file is not found on the remote host '''
@@ -60,6 +108,7 @@ class NoUpDateNeeded(Error):
     ''' Raised when a task don't need an update'''
     pass
 
+
 ############################################################################################################################################################
 ############################################################################################################################################################
 
@@ -67,12 +116,10 @@ class NoUpDateNeeded(Error):
 def read_file(path, name):
     ''' To see if a file exists on the remote host and return his content in a list '''
 
-    print("-----reading file {} in \"{}\"-----".format(name, path))
     try:
         my_file = open(path + name, "r")
         liste = [i[:-1] for i in my_file]
         my_file.close()
-        print("\033[32m-----the file has been found and read-----\033[0m")
     except FileNotFoundError:
         raise MyFileNotFound
     except IOError:
@@ -83,22 +130,18 @@ def read_file(path, name):
 def write_file(path, name, data):
     ''' To write data in a file on the remote host '''
 
-    print("-----saving data in the file {} in \"{}\"-----".format(name, path))
     try:
         with open(path + name, "w") as fichier:
             for line in data:
                 fichier.write("{}\n".format(line))
-        print("\033[32m-----the file has been created or modified-----\033[0m")
     except IOError:
         raise WritingFailure
 
 def implement_file(path, name, rights):
-    ''' To change file permissions on the remote host '''
+    ''' To change file permissions '''
 
-    print("-----changing permissions of {} in \"{}\"-----".format(name, path))
     try:
         os.chmod(path + name, rights)
-        print("\033[32m-----the permissions are changed-----\033[0m")
     except FileNotFoundError:
         raise MyFileNotFound
     except PermissionError:
@@ -110,24 +153,24 @@ def implement_file(path, name, rights):
 class ssh:
     ''' Class for ssh operations '''
 
-    def __init__(self, username, password, host):
+    def __init__(self, module):
         ''' Initialize the object '''
 
-        self.host = host
+        self.host = module.params.get('host')
         self.client = None
         self.scp = None
-        self.username = username
-        self.password = password
-        self._connect()
+        self.username = module.params.get('username')
+        self.password = module.params.get('password')
+        self._connect(module)
 
-    def _connect(self):
+    def _connect(self, module):
         ''' Initialize the connection '''
         
         try:
             self.client = paramiko.SSHClient()
             self.client.load_system_host_keys()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self._check_rsa_keys()
+            self._check_rsa_keys(module)
             self.client.connect(self.host, username = self.username, pkey = self.ssh_key)
             self.scp = SCPClient(self.client.get_transport())
         except:
@@ -135,7 +178,7 @@ class ssh:
         finally:
             return self.client
     
-    def _check_rsa_keys(self):
+    def _check_rsa_keys(self, module):
         ''' Check if rsa keys exist on the remote host (needed for ssh operations with no password input) '''
 
         self.rsa_key = module.params.get('RSA_FILE')
@@ -146,14 +189,14 @@ class ssh:
             read_file(self.path_rsa_keys, self.pub_rsa_key)
             self.ssh_key = paramiko.RSAKey.from_private_key_file("{}{}".format(self.path_rsa_keys, self.rsa_key))
         except MyFileNotFound as exc:
-            self._create_rsa_keys()
+            self._create_rsa_keys(module)
+            self.ssh_key = paramiko.RSAKey.from_private_key_file("{}{}".format(self.path_rsa_keys, self.rsa_key))
         except ReadingFailure as exc:
-            raise Error.no_privileges(ReadingFailure)
+            raise Error.no_privileges(ReadingFailure, module)
 
-    def _create_rsa_keys(self):
+    def _create_rsa_keys(self, module):
         ''' Create rsa keys on the remote host and copy the id on the target machine '''
 
-        print("-----creating rsa keys-----")
         self.rights = stat.S_IREAD|stat.S_IWRITE
 
         os.system("rm \"{0}{1}\" > /dev/null 2>&1 | ssh-keygen -b 4096 -m PEM -f \"{0}{1}\" -N \"\" > /dev/null 2>&1".format(self.path_rsa_keys, self.rsa_key))
@@ -164,17 +207,15 @@ class ssh:
         except FileNotFoundError as exc:
             pass
         except WritingFailure as exc:
-            raise Error.no_privileges(IOError)
+            raise Error.no_privileges(IOError, module)
+        
+        os.system("echo 'Host {0}\n     IdentityFile {1}{2}' >> \"{1}config\"".format(self.host, self.path_rsa_keys, self.rsa_key))
 
-        result = os.system("sshpass -p \"{}\" ssh-copy-id -o StrictHostKeyChecking=no -i \"{}{}\" {}@{} > /dev/null 2>&1".format(self.password, self.path_rsa_keys, self.rsa_key, self.username, self.host))
+        result = os.system("sshpass -p \"{}\" ssh-copy-id -o StrictHostKeyChecking=no -i \"{}{}\" {}@{} > /dev/null 2>&1".format(self.password, self.path_rsa_keys, self.pub_rsa_key, self.username, self.host))
         if result == 256:
-            print("\033[31mUnable to tranfer id on {}, problem to study ! Maybe the name of the target machine or the name of the key are incorrect\033[0m".format(host.upper()))
+            module.warn("Unable to tranfer id on {}, problem to study ! Maybe the name of the target machine or the name of the key are incorrect".format(host.upper()))
         elif result == 1536:
-            print("\033[31m The username of the target machine or his password on {} are incorrect !\033[0m".format(host.upper()))
-
-        self.ssh_key = paramiko.RSAKey.from_private_key_file("{}{}".format(self.path_rsa_keys, self.rsa_key))
-
-        print("\033[32m-----the rsa keys has been generated-----\033[0m")
+            module.warn("The username of the target machine or his password on {} are incorrect !".format(host.upper()))
 
     def disconnect(self):
         ''' Close the ssh connection with the target machine '''
@@ -182,41 +223,33 @@ class ssh:
         self.client.close()
         self.scp.close()
 
-    def exec_command(self,command):
+    def _exec_command(self, command, module):
         ''' Execute a specified command on the target machine '''
 
         if self.client is None:
-            self.client == self.__connect()
-        stdin,stdout,stderr = self.client.exec_command(command)
-        status = stdout.channel.recv_exit_status()
-        if status == 0:
-            return stdout.read()
-        else:
-            return None
+            self.client == self.__connect(module)
+        self.client.exec_command(command)
 
-    def download_file(self, path, remote_path, name):
+    def download_file(self, path, remote_path, name, module):
         ''' Download a file from the target machine '''
     
         try:
             if self.client is None:
                 self.client = self.__connect()
-            self.scp.get('{}{}'.format(remote_path, name), '{}'.format(path))
-            print("\033[32m-----the file {} has been downloaded from {}-----\033[0m".format(name, self.host.upper()))
+            self.scp.get('{}{}'.format(remote_path, name), '{}{}'.format(path, name))
         except:
-            print("\033[33m-----Unable to download the file {} from {}-----\033[0m".format(name, self.host.upper()))
+            module.warn("-----Unable to download the file {} from {}-----".format(name, self.host.upper()))
 
-    def upload_file(self, path, remote_path, name):
+    def upload_file(self, path, dest_path, name, module):
         ''' Transfer a file on the target machine (create directories if they don't exists but not possible on root) '''
 
         try:
             if self.client is None:
                 self.client = self.__connect()
-            command = "mkdir -p {}".format(remote_path)
-            self.exec_command("mkdir -p {}".format(remote_path))
-            self.scp.put('{}{}'.format(path, name), '{}{}'.format(remote_path, name))
-            print("\033[32m-----The file {} has been uploaded on {}-----\033[0m".format(name, self.host.upper()))
+            self._exec_command("mkdir -p {}".format(dest_path), module)
+            self.scp.put('{}{}'.format(path, name), recursive=True, remote_path = dest_path)
         except:
-            print("\033[33m-----Unable to upload the file {} on {}-----\033[0m".format(name, self.host.upper()))
+            module.warn("-----Unable to upload the file {} on {}-----".format(name, self.host.upper()))
 
 ############################################################################################################################################################
 ############################################################################################################################################################
@@ -224,15 +257,15 @@ class ssh:
 class iptables:
     ''' Class to manage iptables save '''
     
-    def __init__(self):
+    def __init__(self, module):
         ''' Initialize the object '''
         
         self.name = module.params.get("IPTABLES_PREFIX") + socket.gethostname()
         self.path = module.params.get('INITD_PATH')
         self.remote_path = module.params.get('REMOTE_PATH') + socket.gethostname() + "/"
-        self._read()
+        self._read(module)
         
-    def _read(self):
+    def _read(self, module):
         ''' Check if a save exists on the remote host ''' 
         
         try:
@@ -241,60 +274,102 @@ class iptables:
         except MyFileNotFound as exc:
             self.existing = False
         except ReadingFailure as esc:
-            raise Error.privileges(ReadingFailure)
+            raise Error.privileges(ReadingFailure, module)
 
-    def download(self, link):
+    def download(self, link, module):
         ''' Download a copy of a previous save on the remote host from the target machine '''
         
-        link.download_file(self.path, self.remote_path, self.name)
-        self._read()
+        link.download_file(self.path, self.remote_path, self.name, module)
+        self._read(module)
 
-    def save(self):
+    def save(self, module):
         ''' Save the iptables rules on the remote host '''
-    
-        print("-----saving iptables rules-----")
-        os.system("/usr/sbin/iptables-save > \"{}{}\"".format(self.path, self.name))
-        self._read()
 
-    def upload(self, link):
+        os.system("/usr/sbin/iptables-save > \"{}{}\"".format(self.path, self.name))
+        self._read(module)
+
+    def upload(self, link, module):
         ''' Upload a copy of the save from the remote host to the target machine '''
 
-        link.upload_file(self.path, self.remote_path, self.name)
+        link.upload_file(self.path, self.remote_path, self.name, module)
 
 ############################################################################################################################################################
 ############################################################################################################################################################
+
+def make_save(module):
+    
+    # Objects establishing for iptables save and the ssh connection
+    job = iptables(module)
+    link = ssh(module)
+
+    # If a save has been found in init.d directory, no change needed
+    if job.existing is True:
+        return False, "Netfilter rules are already saved."
+    else:
+        # No, try to download a copy or make the save
+        job.download(link, module)
+        if job.existing is True:
+            return False, "Netfilter save has been downloaded from remote server."
+        else:
+            job.save(module)
+            if job.existing is True:
+                job.upload(link, module)
+                return True, "Netfilter rules have been saved"
+            else:
+                return False, "Unable to save Netfilter rules" 
+
+def remove_save(module):
+    
+    # Objects establishing for iptables save and the ssh connection
+    job = iptables(module)
+
+    if job.existing is True:
+        try:
+            os.remove(job.path + job.name)
+            return True, "IPtables save has been removed."
+        except IOError:
+            raise Error.no_privileges(IOError, module)
+    else:
+        return False, "IPtables save doesn't exist."
 
 def main():
     ''' Check if an iptables save already exists, update or create it if necessary '''
     
-    module = AnsibleModule(
-        argument_spec = dict(
-            username = dict(type = 'str', required = True),
-            password = dict(type = 'str', required = True, no_log = True),
-            host = dict(type = 'str', required = True),
-            state = dict(required = True, choices = ['present', 'absent']),
-            SSH_PATH = dict(required = True, type = 'str'),
-            RSA_FILE = dict(required = True, type = 'str'),
-            PUB_RSA_FILE = dict(required = True, type = 'str'),
-            INITD_PATH = dict(required = True, type = 'str'),
-            IPTABLES_PREFIX = dict(required= True, type = 'str'),
-            REMOTE_PATH = dict(required = True, type = 'str')
-        )
-    )
-    
-    username = module.params.get('username')
-    password = module.params.get('username')
-    host = module.params.get('host')
-    state = module.params.get('state')
+    fields = {
+            "username": {"required": True, "type": "str"},
+            "password": {"required": True, "no_log": True, "type": "str"},
+            "host": {"required": True, "type": "str"},
+            "INITD_PATH": {"default": "/etc/init.d/", "type": "str"},
+            "SSH_PATH": {"default": "/root/.ssh/", "type": "str"},
+            "REMOTE_PATH": {"default": "/LogsArchiving_REPO/", "type": "str"},
+            "IPTABLES_PREFIX": {"default": "save_iptables_", "type": "str"},
+            "RSA_FILE": {"default": "id_rsa_archiving", "type": "str"},
+            "PUB_RSA_FILE": {"default": "id_rsa_archiving.pub", "type": "str"},
+            "state": {
+                "default": "present", 
+                "choices": ['present', 'absent'],  
+                "type": 'str' 
+                }
+            }
+
+    choice_map = {
+        "present": make_save,
+        "absent": remove_save
+        }
+
+    module = AnsibleModule(argument_spec = fields)
+
+    has_changed, result = choice_map.get(module.params['state'])(module)
+    module.exit_json(changed=has_changed, msg=result)
 
     # Objects establishing for iptables save and the ssh connection
-    job_iptables = iptables()
-    link = ssh(username, password, host)
+    job_iptables = iptables(module)
+    link = ssh(username, password, host, module)
 
     if state.lower() == "absent":
         if job_iptables.existing is True:
             try:
-                os.remove(job_iptables.path, job_iptables.name)
+                os.remove(job_iptables.path + job_iptables.name)
                 module.exit_json(changed = True, msg = "IPtables save has been removed.")
             except IOError:
                 raise Error.no_privileges(IOError)
@@ -307,13 +382,13 @@ def main():
             module.exit_json(changed = False, msg = "Netfilter rules are already saved.")
         else:
             # No, try to download a copy or make the save
-            job_iptables.download(link)
+            job_iptables.download(link, module)
             if job_iptables.existing is True:
                 module.exit_json(changed = False, msg = "Netfilter save has been downloaded from remote server.")
             else:
                 job_iptables.save()
                 if job_iptables.existing is True:
-                    job_iptables.upload(link)
+                    job_iptables.upload(link, module)
                     module.exit_json(changed = True, msg = "Netfilter rules have been saved")
                 else:
                     module.fail_json(changed = False, msg = "Unable to save Netfilter rules" )

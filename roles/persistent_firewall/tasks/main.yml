@@ -1,38 +1,22 @@
----
+# Créer le répertoire dépot sur localhost
 
-# This task is to install IPtables package
-- name: "Install iptables"
-  package:
-    name: iptables
+- name: "Saving firewall rules"
+  iptable_save:
     state: present
+    username: "aic"
+    password: "Azerty123&"
+    host: "ServerCentral"
+  register: result
 
-# This task is to install sshpass package
-- name: "Install sshpass"
-  package:
-    name: sshpass
-    state: present
+- debug: var=result
 
-# This task is to save iptables rules in a file
-- name: "Save firewall rules"
-  iptables_save:
-    state: present
-    vars:
-      username: {{ username }}
-      password: {{ password }}
-      host: {{ host }}
-    vars_files:
-      - iptables_vars.yml
-
-# This task is to create a script which loads desired iptables logs rules and restore iptables backup when the machine start, like a daemon
-- name: "Create netfilter daemon"
+- name: "Create daemon script"
   daemon_script:
-    state: present
-    vars:
-      username: {{ username }}
-      password: {{ password }}
-      host: {{ host }}
-    var_files:
-      - daemon_vars.yml
-      - daemon_template.yml
-      - iptables_vars.yml
-      - rules_template.yml
+    username: "aic"
+    password: "Azerty123&"
+    host: "ServerCentral"
+    IPTABLES_RULES_LIST: "{{IPTABLES_RULES_LIST}}"
+    DAEMON_COMMANDS_LIST: "{{DAEMON_COMMANDS_LIST}}"
+  register: result
+
+- debug: var=result

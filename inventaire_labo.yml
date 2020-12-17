@@ -1,0 +1,12 @@
+---
+all:
+  hosts:
+    Router:
+      ansible_user: aic
+      ansible_python_interpreter: /usr/bin/python3
+    ServerWeb:
+      ansible_user: aic
+      ansible_python_interpreter: /usr/bin/python3
+    DataServer:
+      ansible_user: aic
+      ansible_python_interpreter: /usr/bin/python3
