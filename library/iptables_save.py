@@ -13,33 +13,18 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 
 DOCUMENTATION = '''
 ---
-module: daemon_script
-short_description: Make Netfilter rules persistent
+module: iptables_save
+short_description: Save firewall rules
 description:
-    - Create a script base on a daemon template which is going to apply prefix to Netfilter log and restore an iptables save.
+    - Make a save of the netfilter rules with IPtables is going to be done in "/etc/init.d/" and copy the save file on a remote server with scp. The save filename is generated with the prefix send by Ansible and the hostname.
 version_added: "3.7.3"
 options:
-    IPTABLES_RULES_LIST:
-        description:
-            - a list of the IPtables logs rules you want to add to Netfilter.
-        needed: with present state
-        example: COMING SOOOOOOOOOOOOOOOOOOOOOOOOOOOOON
-
-    DAEMON_COMMANDS_LIST:
-        description:
-            - a list which contains the default template of the daemon.
-        needed: with present state
-        example: https://github.com/Yanick-M/Ansible_Module_Netfilter_logs_archiving/blob/main/roles/persistent_firewall/vars/main.yml
-
     state:
         description:
-            - Indicates if you want to create or remove daemon script file.
+            - Indicates if you want to save or remove save file.
         default: present
         choices: {present, absent}
-
 requirements:
-    - an IPtables save made with the module iptables_save
-    - a linux system working with systemd or sysV
     - ssh
     - sshpass
     - python3-paramiko
@@ -51,65 +36,53 @@ notes:
 '''
 
 EXAMPLES = '''
-- name: "create daemon script"
+- name: "saving IPtables Rules"
   hosts: All
   tasks:
     - name: "Use my module"
-      daemon_script:
-        state: "present"
+      iptables_save:
+        state: present
         username: "{{username}}"
         password: "{{password}}"
         host: "{{host}}"
-        IPTABLES_RULES_LIST: "{{IPTABLES_RULES_LIST}}"
-        DAEMON_COMMANDS_LIST: "{{DAEMON_COMMANDS_LIST}}"
 
-- name: "create daemon script without a copy on a remote machine"
+- name: "remove IPtables save"
   hosts: All
   tasks:
     - name: "Use my module"
-      daemon_script:
-        state: "present"
-        IPTABLES_RULES_LIST: "{{IPTABLES_RULES_LIST}}"
-        DAEMON_COMMANDS_LIST: "{{DAEMON_COMMANDS_LIST}}"
+        iptables_save
+        state: absent
 
-- name: "remove daemon script"
+- name: "saving IPtables Rules without a copy on a remote machine"
   hosts: All
   tasks:
     - name: "Use my module"
-      daemon_script:
-        state: "absent"
+      iptables_save:
+        state: present
 
-- name: "create daemon script with all vars defined"
-  hosts: All
+- name: "saving IPtables Rules with all vars defined"
+  hosts: Router
   tasks:
     - name: "Use my module"
-      daemon_script:
-        state: "present"
+      iptables_save:
+        state: present
         username: "aic"
         password: "Azerty123&"
         host: "ServerCentral"
-        IPTABLES_RULES_LIST: "[...]"
-        DAEMON_COMMANDS_LIST: "[...]"
+        IPTABLES_PREFIX: "firewall_"
         INITD_PATH: "/etc/init.d/"
-        SSH_PATH: "/root/.ssh/"
-        REMOTE_PATH: "/LogsArchiving_REPO/"
-        DAEMON_PREFIX: "firewall_"
-        IPTABLES_PREFIX: "save_iptables_"
         RSA_FILE: "id_rsa_archiving"
         PUB_RSA_FILE: "id_rsa_archiving.pub"
-        BLOC_A: "# Logs comments"
-        BLOC_B: "# Restore IPtables rules"
+        REMOTE_PATH: "/LogsArchiving_REPO/"
+        SSH_PATH: "/root/.ssh/"
 '''
 RETURN = '''
 Nothing more than changed and a result message.
 '''
 
 import os, socket, stat, paramiko
-from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.basic import *
 from scp import SCPClient
-
-############################################################################################################################################################
-############################################################################################################################################################
 
 # Define module user-defined exceptions and errors
 class Error(Exception):
@@ -130,7 +103,7 @@ class Error(Exception):
     def fatal_error(self, module):
         ''' raised when a unknown problem occurs '''
         module.fail_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
-
+    
     def empty_list(self, module):
         ''' raised when a required list var is missing'''
         module.fail_json(changed = False, msg = "\033[31mA required list var is missing !\033[0m")
@@ -153,6 +126,7 @@ class ServiceFailure(Error):
 class NoUpDateNeeded(Error):
     ''' Raised when a task don't need an update'''
     pass
+
 
 ############################################################################################################################################################
 ############################################################################################################################################################
@@ -299,228 +273,97 @@ class ssh:
 ############################################################################################################################################################
 ############################################################################################################################################################
 
-class daemon:
-    ''' Class to manage a "Netfilter Daemon" '''
-
+class iptables:
+    ''' Class to manage iptables save '''
+    
     def __init__(self, module):
         ''' Initialize the object '''
         
-        self.name = module.params.get("DAEMON_PREFIX") + socket.gethostname() +".sh"
+        self.name = module.params.get("IPTABLES_PREFIX") + socket.gethostname()
         self.path = module.params.get('INITD_PATH')
         self.remote_path = module.params.get('REMOTE_PATH') + socket.gethostname() + "/"
-        self.save_name = module.params.get("IPTABLES_PREFIX") + socket.gethostname()
         self._read(module)
-        self.daemon_commands = module.params.get('DAEMON_COMMANDS_LIST')
-        self.logs_rules = module.params.get('IPTABLES_RULES_LIST')
-        self.bloc_A = module.params.get('BLOC_A')
-        self.bloc_B = module.params.get('BLOC_B')
-
+        
     def _read(self, module):
-        ''' Check if the daemon script exists on the remote host '''
+        ''' Check if a save exists on the remote host ''' 
         
         try:
-            self.daemon_commands = read_file(self.path, self.name)
+            self.rules_list = read_file(self.path, self.name)
             self.existing = True
         except MyFileNotFound as exc:
             self.existing = False
         except ReadingFailure as esc:
             raise Error.privileges(ReadingFailure, module)
-    
-    def download(self, link, module):
-        ''' Download a copy of a previous script creation on the remote host from the target machine '''
 
+    def download(self, link, module):
+        ''' Download a copy of a previous save on the remote host from the target machine '''
+        
         link.download_file(self.path, self.remote_path, self.name, module)
         self._read(module)
 
+    def save(self, module):
+        ''' Save the iptables rules on the remote host '''
+
+        os.system("/usr/sbin/iptables-save > \"{}{}\"".format(self.path, self.name))
+        self._read(module)
+
     def upload(self, link, module):
-        ''' Upload a copy of the script from the remote host to the target machine '''
+        ''' Upload a copy of the save from the remote host to the target machine '''
 
         link.upload_file(self.path, self.remote_path, self.name, module)
 
-    def _compare_logs_rules(self, module):
-        ''' Check if desired iptables logs rules are already configured and save in a list which are not '''
-
-        try:
-            tables = read_file(self.path, self.save_name)
-        except MyFileNotFound as exc:
-            raise Error.file_missing(MyFileNotFound, self.path, self.save_name, module)
-        self.all_rules = self.daemon_commands + tables
-        self.rules_to_define = []
-        
-        for rule in self.logs_rules:
-            rule_found = False
-            for command in self.daemon_commands:
-                if rule == command or rule[9:] == command:
-                    rule_found = True
-                    break
-            if rule_found is False:
-                self.rules_to_define.append(rule)
-        
-        if not self.rules_to_define:
-            raise EmptySearch
-
-    def _find_bloc(self, bloc):
-        ''' Check for the line number of a commentary in the script content '''
-        
-        position = 0
-        
-        for command in self.daemon_commands:
-        
-            if command == bloc:
-                break
-            position += 1
-        
-        if position == len(self.daemon_commands):
-            raise EmptySearch
-
-        return(position)
-
-    def update_script(self, link, module):
-        ''' Rewrite the script with the new logs rules '''
-            
-        try:
-            self._compare_logs_rules(module)
-            try:
-                self.bloc_A_position = self._find_bloc(self.bloc_A) + 1
-            except EmptySearch as exc:
-                raise Error.fatal_error(EmptySearch, module)
-            self._update_commands(self.bloc_A_position, self.rules_to_define)
-            self.write_commands(link, module)
-        except EmptySearch as exc:
-            raise NoUpDateNeeded
-
-    def _update_commands(self, bloc_position, data):
-        ''' Insert new logs rules commands in the content of the existing script '''
-        
-        for rule in reversed(self.rules_to_define):
-            self.daemon_commands.insert(bloc_position, rule)
-
-    def write_commands(self, link, module):
-        ''' Write the content in a file on the remote host '''
-
-        try:
-            write_file(self.path, self.name, self.daemon_commands)
-        except WritingFailure as exc:
-            raise Error.unable_to_write(WritingFailure, module)
-        
-        self.implement(module)
-        self.upload(link, module)
-    
-    def implement(self, module):
-        ''' Change the permission of the script, declare and start the service '''
-
-        rights = stat.S_IRWXU
-        try:
-            implement_file(self.path, self.name, rights)
-        except MyFileNotFound as exc:
-            raise Error.erreurfatale(MyFileNotFound, module)
-        except WritingFailure as exc:
-            raise Error.unable_to_write(WritingFailure, module)
-
-        #os.system('update-rc.d "{}" defaults > /dev/null 2>&1'.format(self.name))
-        os.system('"{}./{}" start'.format(self.path, self.name))
-        os.system('ln -s "{}{}" "/etc/systemd/system/multi-user.target.wants/{}service"'.format(self.path, self.name, self.name[:-2]))
-        os.system('systemctl enable {} > /dev/null 2>&1'.format(self.name))
-        result = os.system('systemctl start {}service > /dev/null 2>&1'.format(self.name[:-2]))
-        if result == 1280:
-            module.warn("Unable to start daemon !")
-    
-    def create_commands(self, module):
-        ''' Create the content of the script '''
-        
-        try:
-            self._compare_logs_rules(module)
-        except EmptySearch as exc:
-            raise Error.fatal_error(EmptySearch, module)
-        
-        try:
-            self.bloc_A_position = self._find_bloc(self.bloc_A) + 1
-        except EmptySearch as exc:
-            raise Error.fatal_error(EmptySearch, module)
-        
-        self._update_commands(self.bloc_A_position, self.rules_to_define)
-
-        try:
-            self.bloc_B_position = self._find_bloc(self.bloc_B) + 1
-        except EmptySearch as exc:
-            raise Error.fatal_error(EmptySearch, module)
-
-        self.daemon_commands.insert(self.bloc_B_position, "iptables-restore -n < \"{}{}\"".format(self.path, self.save_name))
-
 ############################################################################################################################################################
 ############################################################################################################################################################
 
-def make_script(module):
+def make_save(module):
     
-    # Objects establishing for the daemon and the ssh connection
-    job = daemon(module)
+    # Objects establishing for iptables save and the ssh connection
+    job = iptables(module)
     link = ssh(module)
 
-    # If a script has been found in init.d directory, trying to see if the desired logs rules exists
-    # No, the script is updated
-    # Yes, the module is quit
-    if not (job.logs_rules and job.daemon_commands):
-        raise Error.empty_list(job.logs_rules, module)
-    elif job.existing is True:
-        try:
-            job.update_script(link, module)
-            msg = "Daemon has been updated with new logs rules."
-            return True, msg
-        except NoUpDateNeeded as exc:
-            msg = "Nelfilter daemon already exits."
-            return False, msg
-    # If not, trying to download it from remote server then updating if needed
-    # If no save on the remote server, the script is generated      
+    # If a save has been found in init.d directory, no change needed
+    if job.existing is True:
+        return False, "Netfilter rules are already saved."
     else:
+        # No, try to download a copy or make the save
         job.download(link, module)
         if job.existing is True:
-            try:
-                job.update_script(link, module)
-                msg = "Daemon has been downloaded and updated with new logs rules."
-                return True, msg
-            except NoUpDateNeeded as exc:
-                job.implement(module)
-                msg = "Up to date netfilter daemon has been downloaded from remote server."
-                return True, msg
+            return False, "Netfilter save has been downloaded from remote server."
         else:
-            job.create_commands(module)
-            job.write_commands(link, module)
-            msg = "Daemon has been created with desired logs rules."
-            return True, msg
+            job.save(module)
+            if job.existing is True:
+                job.upload(link, module)
+                return True, "Netfilter rules have been saved"
+            else:
+                return False, "Unable to save Netfilter rules" 
 
-def erase_script(module):
+def remove_save(module):
     
-    job = daemon(module)
+    # Objects establishing for iptables save and the ssh connection
+    job = iptables(module)
+
     if job.existing is True:
         try:
             os.remove(job.path + job.name)
-            msg = "Netfilter daemon script has been removed."
-            return True, msg
+            return True, "IPtables save has been removed."
         except IOError:
-            raise Error.no_privileges(IOError, module)   
+            raise Error.no_privileges(IOError, module)
     else:
-        msg = "Netfilter daemon script has not been found."
-        return False, msg
-
+        return False, "IPtables save doesn't exist."
 
 def main():
-    ''' Check if the daemon script already exists, update or create it if necessary '''
+    ''' Check if an iptables save already exists, update or create it if necessary '''
     
     fields = {
             "username": {"default": "", "type": "str"},
             "password": {"default": "", "no_log": True, "type": "str"},
             "host": {"default": "", "type": "str"},
-            "IPTABLES_RULES_LIST": {"default": [], "type": "list"},
-            "DAEMON_COMMANDS_LIST": {"default": [], "type": "list"},
             "INITD_PATH": {"default": "/etc/init.d/", "type": "str"},
             "SSH_PATH": {"default": "/root/.ssh/", "type": "str"},
             "REMOTE_PATH": {"default": "/LogsArchiving_REPO/", "type": "str"},
-            "DAEMON_PREFIX": {"default": "firewall_", "type": "str"},
             "IPTABLES_PREFIX": {"default": "save_iptables_", "type": "str"},
             "RSA_FILE": {"default": "id_rsa_archiving", "type": "str"},
             "PUB_RSA_FILE": {"default": "id_rsa_archiving.pub", "type": "str"},
-            "BLOC_A": {"default": "# Logs comments", "type": "str"},
-            "BLOC_B": {"default": "# Restore IPtables rules", "type": "str"},
             "state": {
                 "default": "present", 
                 "choices": ['present', 'absent'],  
@@ -529,8 +372,8 @@ def main():
             }
 
     choice_map = {
-        "present": make_script,
-        "absent": erase_script
+        "present": make_save,
+        "absent": remove_save
         }
 
     module = AnsibleModule(argument_spec = fields)

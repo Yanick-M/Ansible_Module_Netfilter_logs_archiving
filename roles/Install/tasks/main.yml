@@ -1,0 +1,28 @@
+- name: "epel-release for RHEL-based systems"
+  package:
+    name: 
+      - epel-release
+    state: "present"
+  when: ansible_facts['os_family'] is in ["RedHat", "CentOS"]
+- name: "IPtables package for Debian-based systems"
+  package:
+    name: "iptables"
+    state: "present"
+  when: ansible_facts['os_family'] is in ["Debian", "Ubuntu"]
+- name: "IPtables package for RHEL-based systems"
+  package:
+    name: "iptables-services"
+    state: "present"
+  when: ansible_facts['os_family'] is in ["RedHat", "CentOS"]
+- name: "others packages"
+  package:
+    name:
+    - "sshpass"
+    - "rsyslog"
+    - "logrotate"
+    - "rsync"
+    - "tar"
+    - "python3"
+    - "python3-paramiko"
+    - "python3-scp"
+    state: "present"

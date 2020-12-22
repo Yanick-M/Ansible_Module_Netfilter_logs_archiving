@@ -7,13 +7,67 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+ANSIBLE_METADATA = {'metadata_version': '1.1',
+                    'status': ['preview'],
+                    'supported_by': 'community'}
+
 DOCUMENTATION = '''
-Le répertoire servant de dépôt pour les fichiers doit être créé au préalable et appartenir à l'utilisateur appelés en argument
-Le module paramiko doit être présent sur le système ---> A traduire
+---
+module: own_logs
+short_description: Create rsyslog conf file for Netfilter logs
+description:
+    - Create a rsyslog conf file based on the IPtables rules list who defined which Netfilter logs you want to be tagged with a prefix,
+    - Tagged logs will be redirect in specific files in "/var/log/netfilter/".
+version_added: "3.7.3"
+options:
+    IPTABLES_RULES_LIST:
+        description:
+            - a list of the IPtables logs rules you want to add to Netfilter.
+        needed: with present state
+        example: COMING SOOOOOOOOOOOOOOOOOOOOOOOOOOOOON
+
+    state:
+        description:
+            - Indicates if you want to create or remove rsyslog conf file.
+        default: present
+        choices: {present, absent}
+requirements:
+    - rsyslog
+author: "Yanick-M"
+notes:
+    - THIS MODULE REQUIRES PRIVILEGES !!!
 '''
+
 EXAMPLES = '''
+- name: "configure rsyslog for Netfilter own logs"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      own_logs:
+        state: "present"
+        IPTABLES_RULES_LIST: "{{IPTABLES_RULES_LIST}}"
+
+- name: "remove rsyslog conf file for Netfilter own logs"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      own_logs:
+        state: "absent"
+
+- name: "configure rsyslog for Netfilter own logs with all vars defined"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      daemon_script:
+        state: "present"
+        IPTABLES_RULES_LIST: "[...]"
+        RSYSLOG_PATH: "/etc/rsyslog.d/"
+        LOGS_PATH: "/var/log/netfilter/"
+        RSYSLOG_CONF_FILE: "10-iptables.conf"
+        
 '''
 RETURN = '''
+Nothing more than changed and a result message.
 '''
 
 import os
@@ -41,6 +95,10 @@ class Error(Exception):
     def fatal_error(self, module):
         ''' raised when a unknown problem occurs '''
         module.fail_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
+
+    def empty_list(self, module):
+        ''' raised when a required list var is missing'''
+        module.fail_json(changed = False, msg = "\033[31mA required list var is missing !\033[0m")
 
 class MyFileNotFound(Error):
     ''' Raised when a file is not found on the remote host '''
@@ -158,8 +216,9 @@ class logs:
 
         try:
             write_file(self.path, self.name, self.rsyslog_commands)
+            self.create_directory(module)
         except WritingFailure as exc:
-            raise Error.unable_to_write(WritingFailure, module)
+            raise Error.unable_to_write(WritingFailure,self.path, self.name, module)
 
     def update_conf_file(self, module):
         ''' Rewrite the conf file with the update content '''
@@ -172,7 +231,7 @@ class logs:
 
         try:
             os.makedirs(self.logs_path)
-            os.system("chown root:syslog {0} && chmod 775 {0}".format(self.logs_path))
+            os.system("chown root:syslog {0} && chmod 755 {0}".format(self.logs_path))
         except FileExistsError as exc:
             pass
         except IOError as exc:
@@ -200,7 +259,9 @@ def make_conf_file(module):
     # If a rsyslog conf file exits, trying to see if the desired logs rules exists
     # No, rsyslog conf file is updated and logrotate check
     # Yes, just check logrotate
-    if job.existing is True:
+    if not job.logs_rules:
+        raise Error.empty_list(job.logs_rules, module)
+    elif job.existing is True:
         try:
             job.compare_rsyslog_commands()
             job.update_conf_file(module)
@@ -236,7 +297,7 @@ def main():
     ''' Check if the rsyslog conf file already exists, update, create or remove it if necessary '''
 
     fields = {
-            "IPTABLES_RULES_LIST": {"required": True, "type": "list"},
+            "IPTABLES_RULES_LIST": {"default": [], "type": "list"},
             "RSYSLOG_PATH": {"default": "/etc/rsyslog.d/", "type": "str"},
             "LOGS_PATH": {"default": "/var/log/netfilter/", "type": "str"},
             "RSYSLOG_CONF_FILE": {"default": "10-iptables.conf", "type": "str"},

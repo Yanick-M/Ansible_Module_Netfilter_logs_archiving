@@ -1,0 +1,29 @@
+- name: "create crontab directory"
+  file:
+    path: /var/spool/cron/crontabs/
+    state: directory
+    mode: '0730'
+
+- name: "configure crontab hourly task"
+  lineinfile:
+    state: "present"
+    path: "/etc/crontab"
+    line: "17 *	* * *	root    cd / && run-parts --report /etc/cron.hourly"
+
+- name: "configure crontab daily task"
+  lineinfile:
+    state: "present"
+    path: "/etc/crontab"
+    line: "25 6	* * *	root	test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.daily )"
+
+- name: "configure crontab weekly task"
+  lineinfile:
+    state: "present"
+    path: "/etc/crontab"
+    line: "47 6	* * 7	root	test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.weekly )"
+
+- name: "configure crontab monthly task"
+  lineinfile:
+    state: "present"
+    path: "/etc/crontab"
+    line: "52 6	1 * *	root	test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.monthly )"

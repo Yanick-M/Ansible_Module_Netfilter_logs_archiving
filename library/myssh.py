@@ -128,7 +128,7 @@ class ssh:
             self.client.load_system_host_keys()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self._check_rsa_keys(module)
-            self.client.connect(self.host, username = self.username, pkey = self.ssh_key)
+            self.client.connect(self.host, username = self.username, pkey = self.ssh_key, timeout=3)
             self.scp = SCPClient(self.client.get_transport())
         except:
             pass

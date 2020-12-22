@@ -1,7 +1,18 @@
 - name: "Configure servers with persistent firewall and own logs"
   hosts: all
+  vars_prompt:
+    - name: host
+      prompt: "What's the hostname or the IP address of the remote machine where archives are going to be store ?"
+      private: no
+    - name: username
+      prompt: "The username to use for ssh connection ?"
+      private: no
+    - name: password
+      prompt: "The password of this user ?"
+      unsafe: yes
+      private: yes
   roles:
-    - role: "install"
-    - role: "persistent_firewall"
-    - role: "firewall_logs"
-    - role: "logs_transfer"
+    - role: "Install"
+    - role: "Persistent_firewall"
+    - role: "Firewall_logs"
+    - role: "Logs_transfer"

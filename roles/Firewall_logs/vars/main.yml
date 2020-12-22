@@ -1,0 +1,8 @@
+---
+LOGROTATE_LIST: [
+          "/var/log/netfilter/* {",
+          "    daily",
+          "    rotate 2",
+          "}",
+          ""
+        ]

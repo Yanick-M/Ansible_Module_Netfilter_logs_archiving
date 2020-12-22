@@ -1,0 +1,12 @@
+- name: "create an archiving task"
+  archiving_task:
+    state: "present"
+
+- name: "create archiving script"
+  archiving_script:
+    state: "present"
+    username: "{{username}}"
+    password: "{{password}}"
+    host: "{{host}}"
+    ARCHIVING_COMMANDS_LIST: "{{ARCHIVING_COMMANDS_LIST}}"
+  

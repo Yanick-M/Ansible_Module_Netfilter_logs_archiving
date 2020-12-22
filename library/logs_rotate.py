@@ -7,13 +7,64 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+ANSIBLE_METADATA = {'metadata_version': '1.1',
+                    'status': ['preview'],
+                    'supported_by': 'community'}
+
 DOCUMENTATION = '''
-Le répertoire servant de dépôt pour les fichiers doit être créé au préalable et appartenir à l'utilisateur appelés en argument
-Le module paramiko doit être présent sur le système ---> A traduire
+---
+module: logs_rotate
+short_description: Create logrotate conf file for Netfilter logs files
+description:
+    - Create a logrotate conf file to established a daily rotation on Netfilter own logs files.
+version_added: "3.7.3"
+options:
+    LOGROTATE_LIST:
+        description:
+            - a list of a basic conf file template.
+        needed: with present state
+        example: https://github.com/Yanick-M/Ansible_Module_Netfilter_logs_archiving/blob/main/roles/firewall_logs/vars/main.yml
+
+    state:
+        description:
+            - Indicates if you want to create or remove rsyslog conf file.
+        default: present
+        choices: {present, absent}
+requirements:
+    - logrotate
+author: "Yanick-M"
+notes:
+    - THIS MODULE REQUIRES PRIVILEGES !!!
 '''
+
 EXAMPLES = '''
+- name: "configure logrotate for Netfilter logs files"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      logs_rotate:
+        state: "present"
+        LOGROTATE_LIST: "{{LOGROTATE_LIST}}"
+
+- name: "remove logrotate conf file for Netfilter logs files"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      logs_rotate:
+        state: "absent"
+
+- name: "configure logrotate for Netfilter logs files with all vars defined"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      daemon_script:
+        state: "present"
+        LOGROTATE_LIST: "[...]"
+        LOGROTATE_FILE_NAME: "netfilter.conf"
+        LOGROTATE_PATH: "/etc/logrotate.d/"        
 '''
 RETURN = '''
+Nothing more than changed and a result message.
 '''
 
 import os
@@ -38,6 +89,10 @@ class Error(Exception):
     def fatal_error(self, module):
         ''' raised when a unknown problem occurs '''
         module.fail_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
+    
+    def empty_list(self, module):
+        ''' raised when a required list var is missing'''
+        module.fail_json(changed = False, msg = "\033[31mA required list var is missing !\033[0m") 
 
 class MyFileNotFound(Error):
     ''' Raised when a file is not found on the remote host '''
@@ -134,23 +189,26 @@ class logrotate:
 ############################################################################################################################################################
 
 def make_conf_file(module):
-    
+
     # Object establishing for the Netfilter logs rotation
-    rotate = logrotate(module)
-    if rotate.existing is True:
-        return False, "Logrotate conf file already exists."
+    job = logrotate(module)
+    if not job.list:
+        raise Error.empty_list(job.list, module)
     else:
-        rotate.create_logs_rotation(module)
-        return True, "Logrotate conf file has been created."
+        if job.existing is True:
+            return False, "La liste est : {}".format(job.list) #"Logrotate conf file already exists."
+        else:
+            job.create_logs_rotation(module)
+            return True, "Logrotate conf file has been created."
 
 def erase_conf_file(module):
     
     # Object establishing for the Netfilter logs rotation
-    rotate = logrotate(module)
+    job = logrotate(module)
 
-    if rotate.existing is True:
+    if job.existing is True:
         try:
-            os.remove(rotate.path + rotate.name)
+            os.remove(job.path + job.name)
             return True, "Logrotate conf file has been removed."
         except IOError:
             raise Error.no_privileges(IOError, module)
@@ -163,7 +221,7 @@ def main():
     fields = {
             "LOGROTATE_FILE_NAME": {"default": "netfilter.conf", "type": "str"},
             "LOGROTATE_PATH": {"default": "/etc/logrotate.d/", "type": "str"},
-            "LOGROTATE_LIST": {"required": True, "type": "list"},
+            "LOGROTATE_LIST": {"default": [], "type": "list"},
             "state": {
                 "default": "present", 
                 "choices": ['present', 'absent'],  

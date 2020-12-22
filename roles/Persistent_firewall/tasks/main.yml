@@ -1,0 +1,27 @@
+- name: "create repo directory for archives on dedicated machine"
+  file:
+    path: "/LogsArchiving_REPO/"
+    state: "directory"
+    owner: "aic"
+    group: "aic"
+    mode: "0770"
+  connection: local
+
+- name: "saving firewall rules"
+  iptables_save:
+    state: "present"
+    username: "{{username}}"
+    password: "{{password}}"
+    host: "{{host}}"
+  register: result
+
+- debug: var=result
+
+- name: "create daemon script"
+  daemon_script:
+    state: "present"
+    username: "{{username}}"
+    password: "{{password}}"
+    host: "{{host}}"
+    IPTABLES_RULES_LIST: "{{IPTABLES_RULES_LIST}}"
+    DAEMON_COMMANDS_LIST: "{{DAEMON_COMMANDS_LIST}}"

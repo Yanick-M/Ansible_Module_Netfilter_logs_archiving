@@ -7,13 +7,93 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
-DOCUMENTATION = r'''
-Le répertoire servant de dépôt pour les fichiers doit être créé au préalable et appartenir à l'utilisateur appelés en argument
-Le module paramiko doit être présent sur le système ---> A traduire
+ANSIBLE_METADATA = {'metadata_version': '1.1',
+                    'status': ['preview'],
+                    'supported_by': 'community'}
+
+DOCUMENTATION = '''
+---
+module: archiving_script
+short_description: Create a script to archive Netfilter logs on a dedicated machine
+description:
+    - Create an archiving script based on a template list that will make an archive of rotated Netfilter logs files and upload it on a dedicated machine.
+    - Each client has it own directory in the repo, and archives are stored in directories composed of months and years ("december2020/").
+    - The upload is done with ssh and rsync (to remove archive just after).
+version_added: "3.7.3"
+options:
+    host:
+        description:
+            - the hostname or IP address of the dedicated machine where Netfilter logs archives are going to be centralize.
+        needed: with present state
+    username:
+        description:
+            - the username used by ssh connection.
+        needed: with present state
+    password:
+        description:
+            - the username password (configure with no_log option True).
+        needed: with present state
+    ARCHIVING_COMMANDS_LIST:
+        description:
+            - a list of the archiving script template.
+        needed: with present state
+        example: https://github.com/Yanick-M/Ansible_Module_Netfilter_logs_archiving/blob/main/roles/logs_transfer/vars/main.yml
+    state:
+        description:
+            - Indicates if you want to create or remove the archiving script.
+        default: present
+        choices: {present, absent}
+requirements:
+    - ssh
+    - sshpass
+    - tar
+    - rsync
+    - python3
+    - python3-paramiko
+    - python3-scp
+author: "Yanick-M"
+notes:
+    - THIS MODULE REQUIRES PRIVILEGES !!!
 '''
-EXAMPLES = r'''
+
+EXAMPLES = '''
+- name: "create archiving script"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      archiving_script:
+        state: "present"
+        username: "{{username}}"
+        password: "{{password}}"
+        host: "{{host}}"
+        ARCHIVING_COMMANDS_LIST: "{{ARCHIVING_COMMANDS_LIST}}"
+
+- name: "remove logrotate conf file for Netfilter logs files"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      archiving_script:
+        state: "absent"
+
+- name: "configure logrotate for Netfilter logs files with all vars defined"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      archiving_script:
+        state: "present"
+        username: "aic"
+        password: "Azerty123&"
+        host: "ServerCentral"
+        SSH_PATH: "/root/.ssh/"
+        REMOTE_PATH: "/LogsArchiving_REPO/"
+        RSA_FILE: "id_rsa_archiving"
+        PUB_RSA_FILE: "id_rsa_archiving.pub"
+        ARCHIVING_SCRIPT_PATH: "/root/"
+        ARCHIVING_SCRIPT_NAME: "netfilter_logs_archiving.sh"
+        ARCHIVING_COMMANDS_LIST: [...]        
 '''
-RETURN = r'''
+RETURN = '''
+Nothing more than changed and a result message.
 '''
 
 import os, stat, paramiko
@@ -39,6 +119,10 @@ class Error(Exception):
     def fatal_error(self, module):
         ''' raised when a unknown problem occurs '''
         module.fail_json(changed = False, msg = "\033[31mFatal error, report bug !\033[0m")
+
+    def empty_list(self, module):
+        ''' raised when a required list var is missing'''
+        module.fail_json(changed = False, msg = "\033[31mA required list var is missing !\033[0m")
 
 class MyFileNotFound(Error):
     ''' Raised when a file is not found on the remote host '''
@@ -122,7 +206,7 @@ class ssh:
             self.client.load_system_host_keys()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self._check_rsa_keys(module)
-            self.client.connect(self.host, username = self.username, pkey = self.ssh_key)
+            self.client.connect(self.host, username = self.username, pkey = self.ssh_key, timeout=3)
             self.scp = SCPClient(self.client.get_transport())
         except:
             pass
@@ -213,6 +297,7 @@ class archives:
         
         self.name = module.params.get('ARCHIVING_SCRIPT_NAME')
         self.path = module.params.get('ARCHIVING_SCRIPT_PATH')
+        self.commands = module.params.get('ARCHIVING_COMMANDS_LIST')
         self._read(module)
 
     def _read(self, module):
@@ -238,9 +323,7 @@ class archives:
 
     def create_commands(self, module, link):
         ''' Create the content of the script '''
-
-        self.commands = module.params.get('ARCHIVING_COMMANDS_LIST')
-
+        
         self.commands.insert(2, "host={}".format(link.host))
         self.commands.insert(2, "user={}".format(link.username))
 
@@ -271,25 +354,27 @@ class archives:
 def create_script(module):
     
     # Objects establishing for the archiving script and rsa key generation
-    script = archives(module)
+    job = archives(module)
     link = ssh(module)
 
     # If the archiving script exists, checking if the username and the target machine are good
     # Yes, no change needed
     # No, updating the script
-    if script.existing_file is True:
+    if not job.commands:
+        raise Error.empty_list(job.commands, module)
+    elif job.existing_file is True:
         try:
-            script.search(link.username)
-            script.search(link.host)
+            job.search(link.username)
+            job.search(link.host)
             module.exit_json(changed = False, msg = "Archiving script already exists.")
         except EmptySearch as exc:
-            script.create_commands(module, link)
-            script.write_commands(module)
+            job.create_commands(module, link)
+            job.write_commands(module)
             return True, "Archiving script has been updated with new host or user."
     # If not, creating the script
     else:
-        script.create_commands(module, link)
-        script.write_commands(module)
+        job.create_commands(module, link)
+        job.write_commands(module)
         return True, "Archiving script has been created."
 
 
@@ -312,16 +397,16 @@ def main():
     ''' Check if the archiving script and executing task already exist, update, create or remove them if necessary '''
 
     fields = {
-            "username": {"required": True, "type": "str"},
-            "password": {"required": True, "no_log": True, "type": "str"},
-            "host": {"required": True, "type": "str"},
+            "username": {"default": "", "type": "str"},
+            "password": {"default": "", "no_log": True, "type": "str"},
+            "host": {"default": "", "type": "str"},
             "SSH_PATH": {"default": "/root/.ssh/", "type": "str"},
             "REMOTE_PATH": {"default": "/LogsArchiving_REPO/", "type": "str"},
             "RSA_FILE": {"default": "id_rsa_archiving", "type": "str"},
             "PUB_RSA_FILE": {"default": "id_rsa_archiving.pub", "type": "str"},
             "ARCHIVING_SCRIPT_PATH": {"default": "/root/", "type": "str"},
             "ARCHIVING_SCRIPT_NAME": {"default": "netfilter_logs_archiving.sh", "type": "str"},
-            "ARCHIVING_COMMANDS_LIST": {"required": True, "type": "list"},
+            "ARCHIVING_COMMANDS_LIST": {"default": [], "type": "list"},
             "state": {
                 "default": "present", 
                 "choices": ['present', 'absent'],  

@@ -7,13 +7,59 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+ANSIBLE_METADATA = {'metadata_version': '1.1',
+                    'status': ['preview'],
+                    'supported_by': 'community'}
+
 DOCUMENTATION = '''
-Le répertoire servant de dépôt pour les fichiers doit être créé au préalable et appartenir à l'utilisateur appelés en argument
-Le module paramiko doit être présent sur le système ---> A traduire
+---
+module: archiving_task
+short_description: Create a cron task for Netfilter logs archiving
+description:
+    - Create a cron task which is going to execute an archiving script in "/root/" every day at 7:00 AM just after logrotate task.
+version_added: "3.7.3"
+options:
+    state:
+        description:
+            - Indicates if you want to create or remove rsyslog conf file.
+        default: present
+        choices: {present, absent}
+requirements:
+    - cron
+author: "Yanick-M"
+notes:
+    - THIS MODULE REQUIRES PRIVILEGES !!!
 '''
+
 EXAMPLES = '''
+- name: "configure a cron task to execute archiving script"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      archiving_task:
+        state: "present"
+        LOGROTATE_LIST: "{{LOGROTATE_LIST}}"
+
+- name: "remove the cron task which execute the archiving script"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      archiving_task:
+        state: "absent"
+
+- name: "configure logrotate for Netfilter logs files with all vars defined"
+  hosts: All
+  tasks:
+    - name: "Use my module"
+      archiving_task:
+        state: "present"
+        CRONTAB_PATH: "/var/spool/cron/crontabs/"
+        CRONTAB_FILE_NAME: "root",
+        ARCHIVING_SCRIPT_PATH: "/root/"
+        ARCHIVING_SCRIPT_NAME: "netfilter_logs_archiving.sh"        
 '''
 RETURN = '''
+Nothing more than changed and a result message.
 '''
 
 import os
