@@ -309,11 +309,10 @@ class daemon:
         self.path = module.params.get('INITD_PATH')
         self.remote_path = module.params.get('REMOTE_PATH') + socket.gethostname() + "/"
         self.save_name = module.params.get("IPTABLES_PREFIX") + socket.gethostname()
-        self._read(module)
-        self.daemon_commands = module.params.get('DAEMON_COMMANDS_LIST')
         self.logs_rules = module.params.get('IPTABLES_RULES_LIST')
         self.bloc_A = module.params.get('BLOC_A')
         self.bloc_B = module.params.get('BLOC_B')
+        self._read(module)
 
     def _read(self, module):
         ''' Check if the daemon script exists on the remote host '''
@@ -323,6 +322,7 @@ class daemon:
             self.existing = True
         except MyFileNotFound as exc:
             self.existing = False
+            self.daemon_commands = module.params.get('DAEMON_COMMANDS_LIST')
         except ReadingFailure as esc:
             raise Error.privileges(ReadingFailure, module)
     
@@ -344,12 +344,12 @@ class daemon:
             tables = read_file(self.path, self.save_name)
         except MyFileNotFound as exc:
             raise Error.file_missing(MyFileNotFound, self.path, self.save_name, module)
-        self.all_rules = self.daemon_commands + tables
+        all_rules = self.daemon_commands + tables
         self.rules_to_define = []
         
         for rule in self.logs_rules:
             rule_found = False
-            for command in self.daemon_commands:
+            for command in all_rules:
                 if rule == command or rule[9:] == command:
                     rule_found = True
                     break
