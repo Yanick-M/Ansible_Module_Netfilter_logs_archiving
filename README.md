@@ -88,7 +88,7 @@ The "persistent", "iptables-save" and "archiving_script" modules use the SSH pro
 > Each client has his own directory created from his name ("hostname"), inside the repository.
 
 ## Installing:  
-1. ***Zip file:*** 
+1. ***Zip file:***  
 Download project as a zip archive by clicking [here](https://github.com/Yanick-M/Ansible_Module_Netfilter_logs_archiving/archive/main.zip). 
 Unzip archive in your workspace.
 1. ***Clone project:***  
@@ -97,7 +97,7 @@ Get in your workspace or temprary directory and execute clone command like this.
 ```cd /tmp/
 git clone https://github.com/Yanick-M/Ansible_Module_Netfilter_logs_archiving  
 ```
-1. ***Add library:***  
+3. ***Add library:***  
 Copy the location of the library (like "/tmp/Ansible_Module_Netfilter_logs_archiving/library/").  
 Open the file "/etc/ansible/ansible.cfg".  
 Edit the line "library" at the beginning of the file and add ":" just follow by the library location.  
