@@ -5,7 +5,9 @@
   own_logs:
     state: "present"
     IPTABLES_RULES_LIST: "{{IPTABLES_RULES_LIST}}"
-  notify: rsyslog restart
+  notify: 
+    - rsyslog restart
+    - stop flood on console
 
 - name: "configure logrotate"
   logs_rotate:

@@ -3,3 +3,11 @@
   service:
     name: "rsyslog"
     state: "restarted"
+
+- name: "stop flood on console"    # To configure sysctl.conf on RHEL-based system where rsyslog data appears on console
+  sysctl:
+    name: kernel.printk
+    value: "2 4 1 7"
+    state: present
+    reload: yes
+  when: ansible_facts['os_family'] is in ["RedHat", "CentOS"]
