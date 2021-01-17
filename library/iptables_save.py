@@ -328,6 +328,8 @@ def make_save(module):
         # No, try to download a copy or make the save
         job.download(link, module)
         if job.existing is True:
+            os.system('iptables -A INPUT -p tcp --dport 22 -m conntrack --ctstate ESTABLISHED -j ACCEPT')
+            os.system('iptables -A OUTPUT -p tcp --dport 22 -m conntrack --ctstate ESTABLISHED -j ACCEPT')
             return False, "Netfilter save has been downloaded from remote server."
         else:
             job.save(module)

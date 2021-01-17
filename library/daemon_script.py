@@ -321,8 +321,8 @@ class daemon:
             self.daemon_commands = read_file(self.path, self.name)
             self.existing = True
         except MyFileNotFound as exc:
-            self.existing = False
             self.daemon_commands = module.params.get('DAEMON_COMMANDS_LIST')
+            self.existing = False
         except ReadingFailure as esc:
             raise Error.privileges(ReadingFailure, module)
     
@@ -418,7 +418,7 @@ class daemon:
             raise Error.unable_to_write(WritingFailure, module)
 
         #os.system('update-rc.d "{}" defaults > /dev/null 2>&1'.format(self.name))
-        os.system('"{}./{}" start'.format(self.path, self.name))
+        #os.system('"{}./{}" start'.format(self.path, self.name))
         os.system('ln -s "{}{}" "/etc/systemd/system/multi-user.target.wants/{}service"'.format(self.path, self.name, self.name[:-2]))
         os.system('systemctl enable {} > /dev/null 2>&1'.format(self.name))
         result = os.system('systemctl start {}service > /dev/null 2>&1'.format(self.name[:-2]))
